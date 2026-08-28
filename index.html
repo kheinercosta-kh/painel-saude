@@ -596,7 +596,14 @@ function svgDonut(p,cor,{r=48,w=12,txt,sub,size=124}={}){
 function svgPizza(segs,size=150){
   const tot=segs.reduce((s,x)=>s+x[1],0);
   if(!tot) return '';
-  const r=size/2-3, cx=size/2; let a=-Math.PI/2, o='';
+  const r=size/2-3, cx=size/2;
+  /* fatia única de 100%: arco degenera (início = fim), desenha círculo */
+  const cheia = segs.find(x=>x[1]===tot);
+  if(cheia) return `<svg viewBox="0 0 ${size} ${size}" width="100%" style="max-width:${size}px">
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="${cheia[2]}"/>
+    <text x="${cx}" y="${cx+5}" text-anchor="middle"
+      style="font-size:15px;font-weight:600;fill:#fff">100%</text></svg>`;
+  let a=-Math.PI/2, o='';
   segs.forEach(([,v,cor])=>{
     if(!v) return;
     const a2=a+2*Math.PI*v/tot;
