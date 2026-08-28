@@ -140,7 +140,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const SUPABASE_URL = 'https://bxmavxwulyzayzwrlgwm.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_9LbETG1jHtvye6Tg_m4_tw_dNHX-LCy';
 
-const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { db: { schema: 'saude' } });
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /* ================= CONSTANTES ================= */
 const SESSOES = [
@@ -242,19 +242,19 @@ async function descarregar(){
     if(f.registro){
       const r = {...S.registros[S.data], data:S.data, ...f.registro};
       delete r.id; delete r.user_id; delete r.criado_em; delete r.atualizado_em;
-      const {error} = await sb.from('registros_diarios')
+      const {error} = await sb.from('sd_registros_diarios')
         .upsert(r,{onConflict:'user_id,data'});
       if(error) throw error;
     }
     if(f.metas){
-      const {error} = await sb.from('metas')
+      const {error} = await sb.from('sd_metas')
         .upsert({...S.metas, user_id:S.user.id},{onConflict:'user_id'});
       if(error) throw error;
     }
     if(f.cargas){
       const linhas = Object.values(f.cargas);
       if(linhas.length){
-        const {error} = await sb.from('cargas_treino')
+        const {error} = await sb.from('sd_cargas_treino')
           .upsert(linhas,{onConflict:'user_id,data,exercicio_id,serie'});
         if(error) throw error;
       }
@@ -277,13 +277,13 @@ async function carregarTudo(){
   const ini = S.metas.inicio_plano;
   const fim = somaDias(ini, 40);
   const [rd, ct, cr, mt] = await Promise.all([
-    sb.from('registros_diarios').select('*').gte('data',ini).lte('data',fim),
-    sb.from('cargas_treino').select('*'),
-    sb.from('crises').select('*').order('data',{ascending:false}),
-    sb.from('metas').select('*').maybeSingle(),
+    sb.from('sd_registros_diarios').select('*').gte('data',ini).lte('data',fim),
+    sb.from('sd_cargas_treino').select('*'),
+    sb.from('sd_crises').select('*').order('data',{ascending:false}),
+    sb.from('sd_metas').select('*').maybeSingle(),
   ]);
   if(mt.data) S.metas = {...METAS_PADRAO, ...mt.data};
-  else await sb.from('metas').upsert({user_id:S.user.id, ...METAS_PADRAO});
+  else await sb.from('sd_metas').upsert({user_id:S.user.id, ...METAS_PADRAO});
 
   S.registros = {};
   (rd.data||[]).forEach(r => S.registros[r.data] = r);
@@ -991,7 +991,7 @@ function ligarEventos(){
   if(ri) ri.oninput=()=>el('c_int_lbl').textContent=ri.value+' / 10';
   const sc=el('salvarCrise'); if(sc) sc.onclick=salvarCrise;
   document.querySelectorAll('[data-delcrise]').forEach(b=>b.onclick=async()=>{
-    await sb.from('crises').delete().eq('id',b.dataset.delcrise);
+    await sb.from('sd_crises').delete().eq('id',b.dataset.delcrise);
     S.crises=S.crises.filter(c=>c.id!==b.dataset.delcrise); render();
   });
   const s=el('sair'); if(s) s.onclick=async()=>{await sb.auth.signOut(); location.reload()};
@@ -1031,7 +1031,7 @@ async function salvarCrise(){
     sintomas:g('c_sintomas')||null,
     o_que_ajudou:g('c_ajudou')||null,
   };
-  const {data,error}=await sb.from('crises').insert(linha).select().single();
+  const {data,error}=await sb.from('sd_crises').insert(linha).select().single();
   if(error){ S.msg='Erro ao salvar crise: '+error.message; pintarEstado(); return; }
   S.crises=[data,...S.crises]; render();
 }
