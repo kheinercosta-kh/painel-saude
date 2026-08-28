@@ -641,6 +641,35 @@ function svgSpark(v,cor,w=200,h=40){
     <circle cx="${x(v.length-1)}" cy="${y(v.at(-1))}" r="3" fill="${cor}"/></svg>`;
 }
 
+
+function svgCrises(crises, inicio, cor){
+  const W=680,H=190,P={t:14,r:12,b:26,l:32};
+  const x=d=>P.l+(W-P.l-P.r)*(d-1)/29;
+  const y=v=>P.t+(H-P.t-P.b)*(1-v/10);
+  const corInt=v=> v>=8?'#8E3227' : v>=6?'#A2453A' : v>=4?'#C4703C' : '#D9A566';
+  let pts='';
+  crises.forEach(c=>{
+    const d=diaPlano(c.data, inicio);
+    if(d<1||d>30) return;
+    const i=Number(c.intensidade)||0;
+    const dur=Number(c.duracao_min)||0;
+    const raio=Math.max(4, Math.min(11, 4+dur/22));
+    pts+=`<circle cx="${x(d)}" cy="${y(i)}" r="${raio}" fill="${corInt(i)}"
+      fill-opacity=".85" stroke="${C.papel}" stroke-width="1.5"><title>Dia ${d} · intensidade ${i}${dur?` · ${dur} min`:''}</title></circle>`;
+  });
+  const guias=[0,2,4,6,8,10].map(v=>
+    `<line x1="${P.l}" x2="${W-P.r}" y1="${y(v)}" y2="${y(v)}" stroke="${C.linha}" stroke-dasharray="2 4"/>
+     <text x="6" y="${y(v)+3}" style="font-size:10px;fill:${C.fraco}">${v}</text>`).join('');
+  const eixo=[1,7,14,21,28].map(d=>
+    `<text x="${x(d)}" y="${H-8}" text-anchor="middle" style="font-size:10px;fill:${C.fraco}">${d}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="height:190px">
+    <rect x="${P.l}" y="${y(10)}" width="${W-P.l-P.r}" height="${y(7)-y(10)}"
+      fill="#A2453A" fill-opacity=".05"/>
+    ${guias}${pts}${eixo}
+    <text x="${W/2}" y="${H-8}" text-anchor="middle"
+      style="font-size:9px;fill:${C.fraco};letter-spacing:.1em">DIA DO PLANO</text></svg>`;
+}
+
 function viewPainel(){
   const M=S.metas, s=serie();
   const hj=hojeIso();
@@ -755,20 +784,26 @@ function viewPainel(){
           ${crit?'<span class="selo">crítico</span>':''}</li>`).join('')}</ul>`}
   </section>
 
-  ${n>0?`<div class="gradeDois">
-    <section class="cartao" style="text-align:center">
-      <span class="et">Dias com crise</span>
-      <div style="margin:12px auto 0;max-width:150px">
-        ${svgPizza([['Sem',n-diasCrise,C.teal],['Com',diasCrise,C.barro]])}</div>
-      <p class="nota">${diasCrise} em ${n} dias</p>
-    </section>
-    <section class="cartao" style="text-align:center">
-      <span class="et">Acima do piso</span>
-      <div style="margin:12px auto 0">
-        ${svgDonut(pctd(acimaPiso,comKcal.length),C.teal,{sub:'DIAS OK'})}</div>
-      <p class="nota">${acimaPiso} de ${comKcal.length} dias com lançamento</p>
-    </section>
-  </div>
+  ${S.crises.length?`<section class="cartao">
+    <div class="topo"><span class="et">Crises</span>
+      <span class="etf">${S.crises.length} em ${diasCrise} dia${diasCrise===1?'':'s'} · intensidade média ${
+        (media(S.crises.map(c=>c.intensidade))||0).toFixed(1)}</span></div>
+    <p class="nota">Cada ponto é uma crise. Altura é a intensidade, tamanho é a duração.</p>
+    ${svgCrises(S.crises, M.inicio_plano, C.barro)}
+    <div class="legenda" style="color:var(--fraco)">
+      <span style="color:var(--fraco)"><i class="pt" style="background:#D9A566"></i>até 3</span>
+      <span style="color:var(--fraco)"><i class="pt" style="background:#C4703C"></i>4 a 5</span>
+      <span style="color:var(--fraco)"><i class="pt" style="background:#A2453A"></i>6 a 7</span>
+      <span style="color:var(--fraco)"><i class="pt" style="background:#8E3227"></i>8 ou mais</span>
+    </div>
+  </section>`:''}
+
+  ${n>0?`<section class="cartao" style="text-align:center">
+    <span class="et">Acima do piso calórico</span>
+    <div style="margin:12px auto 0">
+      ${svgDonut(pctd(acimaPiso,comKcal.length),C.teal,{sub:'DIAS OK'})}</div>
+    <p class="nota">${acimaPiso} de ${comKcal.length} dias com lançamento</p>
+  </section>
 
   <section class="cartao">
     <div class="topo"><span class="et">Perfil de adesão</span><span class="etf">média de ${n} dia${n===1?'':'s'}</span></div>
