@@ -1,0 +1,13 @@
+{
+  "name": "Painel de Saúde",
+  "short_name": "Saúde",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#E7EBEE",
+  "theme_color": "#1F6F68",
+  "icons": [
+    {"src": "favicon.png", "sizes": "64x64", "type": "image/png"},
+    {"src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

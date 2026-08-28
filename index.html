@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#E7EBEE">
 <title>Painel de Saúde</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Saúde">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap" rel="stylesheet">
@@ -464,6 +470,46 @@ function viewHoje(){
   </section>
 
   <section class="cartao">
+    <div class="topo"><span class="et">Saúde sexual</span>
+      <span class="etf">opcional</span></div>
+    <p class="nota">Registro para levar ao psiquiatra. O padrão ao longo das semanas
+      é o que importa, não o dia isolado.</p>
+    <div class="chips" style="margin-top:14px">
+      ${[['sim','Houve relação'],['nao','Não houve']].map(([v,rot])=>{
+        const on = r.houve_relacao === (v==='sim');
+        return `<button class="chip" data-relacao="${v}"
+          style="background:${on?'var(--teal)':'transparent'};color:${on?'#fff':'var(--tinta)'};
+          border-color:${on?'var(--teal)':'var(--linha)'}">${on?'✓ ':''}${rot}</button>`}).join('')}
+    </div>
+    ${r.houve_relacao?`
+    <div class="divisor">
+      <span class="rot">Ejaculação</span>
+      <div class="chips">
+        ${[['sim','Normal','var(--teal)'],['dificuldade','Com dificuldade','var(--areia)'],
+           ['nao','Não houve','var(--barro)']].map(([v,rot,cor])=>{
+          const on=r.ejaculacao===v;
+          return `<button class="chip" data-ejac="${v}"
+            style="background:${on?cor:'transparent'};color:${on?'#fff':'var(--tinta)'};
+            border-color:${on?cor:'var(--linha)'}">${on?'✓ ':''}${rot}</button>`}).join('')}
+      </div>
+      <div style="margin-top:16px"><div class="topo">
+        <span class="rot">Desejo / libido</span>
+        <span style="font:600 15px 'IBM Plex Mono';color:var(--teal)">${r.libido??5} / 10</span></div>
+        <input type="range" id="libido" min="0" max="10" value="${r.libido??5}"
+          style="margin-top:8px;accent-color:var(--teal);padding:0"></div>
+      <div class="chips" style="margin-top:16px">
+        <button class="chip" data-ansdur="1"
+          style="background:${r.ansiedade_durante?'var(--barro)':'transparent'};
+          color:${r.ansiedade_durante?'#fff':'var(--tinta)'};
+          border-color:${r.ansiedade_durante?'var(--barro)':'var(--linha)'}">
+          ${r.ansiedade_durante?'✓ ':''}Palpitação, calor ou falta de ar durante</button>
+      </div>
+      <input type="text" data-campo="nota_sexual" style="margin-top:14px;font-size:13px"
+        placeholder="Anotação — o que ajudou, o que atrapalhou…" value="${esc(r.nota_sexual)}">
+    </div>`:''}
+  </section>
+
+  <section class="cartao">
     <div class="topo"><span class="et">Rotina</span>
       <span class="etf">${CHECKS.filter(c=>ck[c[0]]).length} de ${CHECKS.length}</span></div>
     <ul class="lst">${CHECKS.map(([id,rot,crit])=>{
@@ -751,6 +797,19 @@ function ligarEventos(){
     if(i.dataset.campo==='kcal'||i.dataset.campo==='proteina_g') atualizarInstrumento();
   });
   document.querySelectorAll('[data-lista]').forEach(b=>b.onclick=()=>alternarLista(b.dataset.lista,b.dataset.val));
+  document.querySelectorAll('[data-relacao]').forEach(b=>b.onclick=()=>{
+    const v = b.dataset.relacao==='sim';
+    setCampo('houve_relacao', reg().houve_relacao===v ? null : v); render();
+  });
+  document.querySelectorAll('[data-ejac]').forEach(b=>b.onclick=()=>{
+    setCampo('ejaculacao', reg().ejaculacao===b.dataset.ejac ? null : b.dataset.ejac); render();
+  });
+  document.querySelectorAll('[data-ansdur]').forEach(b=>b.onclick=()=>{
+    setCampo('ansiedade_durante', !reg().ansiedade_durante); render();
+  });
+  const lb=el('libido');
+  if(lb) lb.oninput=()=>{ setCampo('libido', Number(lb.value));
+    lb.previousElementSibling.querySelector('span:last-child').textContent = lb.value+' / 10'; };
   document.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>alternarCheck(b.dataset.check));
   document.querySelectorAll('[data-ver]').forEach(b=>b.onclick=()=>{S.vendo=b.dataset.ver;render()});
 
