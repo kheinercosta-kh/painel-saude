@@ -216,7 +216,7 @@ const el = id => document.getElementById(id);
 
 /* ================= ESTADO ================= */
 const S = {
-  user:null, aba:'hoje', data:hojeIso(),
+  user:null, aba:'painel', data:hojeIso(),
   registros:{},         // data -> registro
   cargas:{},            // data -> {exId: {serie: {carga_kg,reps}}}
   cargasMax:{},         // exId -> maior carga anterior
@@ -363,7 +363,7 @@ function render(){
     </header>
     <div id="msgerro" class="erro"></div>
     <nav class="abas">
-      ${[['hoje','Hoje'],['treino','Treino'],['evolucao','Evolução'],
+      ${[['painel','Painel'],['hoje','Hoje'],['treino','Treino'],['evolucao','Evolução'],
          ['crises','Crises'],['metas','Metas']]
         .map(([k,r])=>`<button data-aba="${k}" class="${S.aba===k?'on':''}">${r}${
           k==='crises'&&S.crises.length?` <span class="tag">${S.crises.length}</span>`:''}</button>`).join('')}
@@ -372,6 +372,7 @@ function render(){
     <div id="conteudo"></div>`;
 
   el('conteudo').innerHTML =
+    S.aba==='painel' ? viewPainel() :
     S.aba==='hoje' ? viewHoje() :
     S.aba==='treino' ? viewTreino() :
     S.aba==='evolucao' ? viewEvolucao() :
@@ -531,6 +532,158 @@ const campo=(rot,suf,campo,val,big)=>`<div><span class="rot">${rot}</span>
 const chip=(id,rot,cor,on,lista)=>`<button class="chip" data-lista="${lista}" data-val="${id}"
   style="background:${on?cor:'transparent'};color:${on?'#fff':'var(--tinta)'};
   border-color:${on?cor:'var(--linha)'}">${on?'✓ ':''}${rot}</button>`;
+
+
+/* ---------- PAINEL (semáforo + padrões) ---------- */
+function media(arr){ const v=arr.filter(x=>x!=null&&!isNaN(x));
+  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null }
+
+function viewPainel(){
+  const r = reg(), M = S.metas, s = serie();
+  const kcal=Number(r.kcal)||0, prot=Number(r.proteina_g)||0;
+  const treinou = (r.sessoes||[]).some(x=>x!=='descanso') || (r.grupos||[]).length>0;
+  const sono = r.sono_min;
+
+  /* ---- semáforo ---- */
+  const sem = [
+    { rot:'Energia', val:kcal||'—', un:'kcal',
+      cor: kcal===0?'var(--fraco)' : kcal<M.piso_kcal?'var(--barro)'
+         : kcal<M.kcal_alvo-150?'var(--areia)':'var(--teal)',
+      txt: kcal===0?'sem lançamento' : kcal<M.piso_kcal?`faltam ${M.piso_kcal-kcal} para o piso`
+         : kcal<M.kcal_alvo-150?`faltam ${M.kcal_alvo-kcal} para o alvo`:'na faixa' },
+    { rot:'Proteína', val:prot||'—', un:`/ ${M.proteina_g} g`,
+      cor: prot>=M.proteina_g?'var(--teal)' : prot>=M.proteina_g*0.7?'var(--areia)':'var(--barro)',
+      txt: prot>=M.proteina_g?'meta batida':`faltam ${Math.max(0,M.proteina_g-prot)} g` },
+    { rot:'Treino', val:treinou?'✓':'—', un:'',
+      cor: treinou?'var(--teal)':'var(--fraco)',
+      txt: treinou?(r.sessoes||[]).map(x=>SESSOES.find(y=>y[0]===x)?.[1]).join(' + ')||'registrado'
+         :'nada registrado hoje' },
+    { rot:'Sono', val:sono?hm(sono):'—', un:'',
+      cor: !sono?'var(--fraco)' : sono>=M.sono_alvo_min?'var(--teal)'
+         : sono>=M.sono_alvo_min-45?'var(--areia)':'var(--barro)',
+      txt: !sono?'sem lançamento' : sono>=M.sono_alvo_min?'no alvo'
+         :`${M.sono_alvo_min-sono} min abaixo do alvo` },
+  ];
+
+  /* ---- pendências ---- */
+  const ck=r.checklist||{}, pend=[];
+  if(kcal>0 && kcal<M.piso_kcal) pend.push(['Comer mais '+(M.piso_kcal-kcal)+' kcal para chegar ao piso',1]);
+  if(!ck.comeuAntes) pend.push(['Comer antes de tomar o Aymee',1]);
+  if(!ck.sem5h) pend.push(['Confirmar que não passou 5h sem comer',1]);
+  if(prot<M.proteina_g && prot>0) pend.push([`Faltam ${M.proteina_g-prot} g de proteína`,0]);
+  if(!ck.cafeina14) pend.push(['Encerrar a cafeína até as 14h',0]);
+  if(!treinou) pend.push(['Sessão do dia: '+(SESSOES.find(x=>x[0]===AGENDA[new Date(S.data+'T00:00:00').getDay()])?.[1]),0]);
+  if(!ck.respManha||!ck.respNoite) pend.push(['Respiração de 5 minutos',0]);
+  if(!ck.cama) pend.push(['Na cama até 22:30',0]);
+
+  /* ---- sequência das duas regras críticas ---- */
+  let seq=0;
+  for(let i=0;i<60;i++){
+    const d=somaDias(hojeIso(),-i), rr=S.registros[d];
+    if(!rr) { if(i===0) continue; else break; }
+    const c=rr.checklist||{};
+    if(c.comeuAntes && c.sem5h) seq++; else if(i>0) break;
+  }
+
+  /* ---- padrões: dias com crise vs sem ---- */
+  const datasCrise = new Set(S.crises.map(c=>c.data));
+  const comReg = s.filter(d=>S.registros[d.data]);
+  const comC = comReg.filter(d=>datasCrise.has(d.data));
+  const semC = comReg.filter(d=>!datasCrise.has(d.data));
+
+  const linhas = [
+    ['Sono da noite', d=>d.sono, v=>v?hm(Math.round(v)):'—', 'menor'],
+    ['Cafeína no dia', d=>S.registros[d.data]?.cafeina_ml, v=>v?Math.round(v)+' ml':'—', 'maior'],
+    ['Calorias', d=>d.kcal, v=>v?Math.round(v)+' kcal':'—', 'menor'],
+  ];
+
+  const amostra = comC.length;
+  const jejumCrises = media(S.crises.map(c=>Number(c.horas_ultima_refeicao)));
+  const intensMedia = media(S.crises.map(c=>Number(c.intensidade)));
+
+  /* ---- sexual ---- */
+  const relacoes = comReg.filter(d=>S.registros[d.data]?.houve_relacao);
+  const comAns = relacoes.filter(d=>S.registros[d.data]?.ansiedade_durante);
+  const dific  = relacoes.filter(d=>S.registros[d.data]?.ejaculacao!=='sim'
+                                 && S.registros[d.data]?.ejaculacao);
+
+  const barra=(rot,a,b,fmt,pior)=>{
+    if(a==null&&b==null) return '';
+    const alerta = a!=null&&b!=null && (pior==='menor' ? a<b : a>b);
+    return `<div style="margin-bottom:14px">
+      <div class="topo"><span style="font:400 13px 'IBM Plex Sans'">${rot}</span>
+        <span class="etf">${alerta?'⚠':''}</span></div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <div style="flex:1;background:var(--barroclaro);border-radius:6px;padding:8px 10px">
+          <span class="etf" style="color:var(--barro)">com crise</span>
+          <p style="font:600 15px 'IBM Plex Mono';margin:2px 0 0;color:var(--barro)">${fmt(a)}</p></div>
+        <div style="flex:1;background:var(--tealclaro);border-radius:6px;padding:8px 10px">
+          <span class="etf" style="color:var(--teal)">sem crise</span>
+          <p style="font:600 15px 'IBM Plex Mono';margin:2px 0 0;color:var(--teal)">${fmt(b)}</p></div>
+      </div></div>`;
+  };
+
+  return `
+  <section class="cartao destaque">
+    <div class="topo"><span class="et">Hoje</span>
+      ${seq>1?`<span class="ultc">${seq} dias seguidos sem falhar o básico</span>`:''}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:16px">
+      ${sem.map(x=>`<div style="border-left:3px solid ${x.cor};padding-left:12px">
+        <span class="et">${x.rot}</span>
+        <p style="font:600 24px/1.1 'IBM Plex Mono';margin:6px 0 2px;color:${x.cor}">
+          ${x.val}<span style="font:400 12px 'IBM Plex Sans';color:var(--fraco)"> ${x.un}</span></p>
+        <span class="etf">${x.txt}</span></div>`).join('')}
+    </div>
+  </section>
+
+  <section class="cartao">
+    <span class="et">Falta hoje</span>
+    ${pend.length===0
+      ? `<p style="font:400 14px 'IBM Plex Sans';color:var(--teal);margin:12px 0 0">
+          Tudo cumprido. Dia fechado.</p>`
+      : `<ul class="lst">${pend.map(([t,crit])=>`<li style="display:flex;gap:10px;
+          align-items:baseline;padding:7px 0">
+          <span style="color:${crit?'var(--barro)':'var(--fraco)'};font-size:18px;line-height:1">·</span>
+          <span style="font:400 14px/1.4 'IBM Plex Sans'">${t}</span>
+          ${crit?'<span class="selo">crítico</span>':''}</li>`).join('')}</ul>`}
+  </section>
+
+  <section class="cartao">
+    <div class="topo"><span class="et">Padrões</span>
+      <span class="etf">${S.crises.length} crise${S.crises.length===1?'':'s'} registrada${S.crises.length===1?'':'s'}</span></div>
+    ${amostra===0
+      ? `<p class="nota" style="margin-top:12px">Sem crises registradas ainda. Quando houver,
+         esta seção compara os dias com e sem crise para revelar o que muda entre eles.</p>`
+      : `${amostra<4?`<p class="nota" style="margin-top:12px;color:var(--areia)">
+           Amostra pequena (${amostra} dia${amostra===1?'':'s'}). Trate como pista, não como conclusão.</p>`:''}
+         <div style="margin-top:16px">
+           ${linhas.map(([rot,get,fmt,pior])=>
+             barra(rot, media(comC.map(get)), media(semC.map(get)), fmt, pior)).join('')}
+         </div>
+         <div class="divisor">
+           ${jejumCrises!=null?`<p style="font:400 14px/1.5 'IBM Plex Sans';margin:0 0 8px">
+             Nas crises, a média foi de <strong>${jejumCrises.toFixed(1)} h</strong> desde a última refeição.</p>`:''}
+           ${intensMedia!=null?`<p style="font:400 14px/1.5 'IBM Plex Sans';margin:0">
+             Intensidade média: <strong>${intensMedia.toFixed(1)} / 10</strong>.</p>`:''}
+         </div>`}
+  </section>
+
+  ${relacoes.length>0?`<section class="cartao">
+    <div class="topo"><span class="et">Saúde sexual</span>
+      <span class="etf">${relacoes.length} registro${relacoes.length===1?'':'s'}</span></div>
+    <div style="margin-top:14px">
+      <p style="font:400 14px/1.6 'IBM Plex Sans';margin:0">
+        Dificuldade para ejacular em <strong>${dific.length} de ${relacoes.length}</strong>.
+        Palpitação ou falta de ar durante em <strong>${comAns.length} de ${relacoes.length}</strong>.</p>
+      ${comAns.length>0?`<p class="nota" style="margin-top:10px">
+        Sono médio nas noites com ativação: ${(()=>{const v=media(comAns.map(d=>d.sono));
+          return v?hm(Math.round(v)):'—'})()}.
+        Nas demais: ${(()=>{const v=media(relacoes.filter(d=>!comAns.includes(d)).map(d=>d.sono));
+          return v?hm(Math.round(v)):'—'})()}.</p>`:''}
+      <p class="nota" style="margin-top:10px">Leve estes números à consulta.</p>
+    </div>
+  </section>`:''}`;
+}
 
 /* ---------- TREINO ---------- */
 function viewTreino(){
