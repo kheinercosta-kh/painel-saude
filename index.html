@@ -497,6 +497,8 @@ function viewHoje(){
       ${campo('Cafeína','ml','cafeina_ml',r.cafeina_ml)}
       ${campo('Gasto total','kcal','kcal_gasto',r.kcal_gasto)}
       ${campo('Gasto ativo','kcal','kcal_ativas',r.kcal_ativas)}
+      ${campo('Estresse (escore)','0–100','estresse_geral',r.estresse_geral)}
+      ${campo('Estresse alto','min','estresse_alto_min',r.estresse_alto_min)}
     </div>
     <div style="margin-top:16px">
       <span class="rot">Sono da noite anterior</span>
@@ -683,13 +685,18 @@ function viewPainel(){
     ['sono', pctd(media(regs.map(d=>d.sono))||0, M.sono_alvo_min)],
     ['treino', pctd(treinos, n)],
     ['cafeína', pctd(regs.filter(d=>d.reg.checklist?.cafeina14).length, n)],
-    ['calma', pctd(n-diasCrise, n)],
+    ['estresse', (()=>{ const e=media(regs.map(d=>d.reg.estresse_geral));
+        return e!=null ? Math.max(0, Math.round(100-e)) : pctd(n-diasCrise, n) })()],
   ];
 
   const comparar=[
     ['Sono', media(comC.map(d=>d.sono)), media(semC.map(d=>d.sono)), v=>v?hm(Math.round(v)):'—'],
     ['Cafeína', media(comC.map(d=>d.reg.cafeina_ml)), media(semC.map(d=>d.reg.cafeina_ml)), v=>v?Math.round(v)+' ml':'—'],
     ['Calorias', media(comC.map(d=>d.kcal)), media(semC.map(d=>d.kcal)), v=>v?Math.round(v)+'':'—'],
+    ['Estresse (Garmin)', media(comC.map(d=>d.reg.estresse_geral)),
+      media(semC.map(d=>d.reg.estresse_geral)), v=>v!=null?Math.round(v)+'':'—'],
+    ['Minutos em estresse alto', media(comC.map(d=>d.reg.estresse_alto_min)),
+      media(semC.map(d=>d.reg.estresse_alto_min)), v=>v!=null?Math.round(v)+' min':'—'],
   ];
 
   const ultPeso=[...regs].reverse().find(d=>d.peso)?.peso;
@@ -802,7 +809,11 @@ function viewPainel(){
          ['FC repouso', regs.filter(d=>d.fc).map(d=>d.fc), C.barro,
           media(regs.map(d=>d.fc))?Math.round(media(regs.map(d=>d.fc)))+' bpm':'—', `base ${M.fc_base} bpm`],
          ['Calorias', comKcal.map(d=>d.kcal), C.areia,
-          media(comKcal.map(d=>d.kcal))?Math.round(media(comKcal.map(d=>d.kcal)))+' kcal':'—', 'média diária']]
+          media(comKcal.map(d=>d.kcal))?Math.round(media(comKcal.map(d=>d.kcal)))+' kcal':'—', 'média diária'],
+         ['Estresse', regs.filter(d=>d.reg.estresse_geral!=null).map(d=>d.reg.estresse_geral), '#C4703C',
+          media(regs.map(d=>d.reg.estresse_geral))!=null
+            ? Math.round(media(regs.map(d=>d.reg.estresse_geral)))+'' : '—',
+          'a linha caindo é o sinal bom']]
         .map(([rot,v,cor,val,nota])=>`<div class="tile">
           <span class="et">${rot}</span>
           <p style="font:600 19px 'IBM Plex Mono';margin:6px 0 2px">${val}</p>
