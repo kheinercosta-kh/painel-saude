@@ -121,7 +121,7 @@ footer{max-width:880px;margin:28px auto 0;font:400 11px/1.6 'IBM Plex Sans';
   border-radius:12px;padding:28px}
 .login input{margin-top:6px;margin-bottom:14px}
 .erro{color:var(--barro);font:400 13px 'IBM Plex Sans';margin-top:10px}
-svg.chart{width:100%;height:210px;display:block;margin-top:10px}
+svg.chart{width:100%;height:auto;display:block;margin-top:10px}
 svg text{font:400 10px 'IBM Plex Mono',monospace;fill:var(--fraco)}
 .metalinha{display:flex;justify-content:space-between;align-items:center;gap:16px;
   padding:10px 0;border-bottom:1px solid var(--linha)}
@@ -638,7 +638,8 @@ function svgSpark(v,cor,w=200,h=40){
   return `<svg viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="none" style="height:${h}px">
     <polyline points="${v.map((n,i)=>`${x(i)},${y(n)}`).join(' ')}" fill="none"
       stroke="${cor}" stroke-width="2" vector-effect="non-scaling-stroke"/>
-    <circle cx="${x(v.length-1)}" cy="${y(v.at(-1))}" r="3" fill="${cor}"/></svg>`;
+    <line x1="${x(v.length-1)}" y1="${y(v.at(-1))-4}" x2="${x(v.length-1)}" y2="${y(v.at(-1))+4}"
+      stroke="${cor}" stroke-width="3" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 
@@ -949,42 +950,63 @@ function serie(){
 }
 
 function grafLinha(dados,chave,cor,dominio,ref,fmt){
-  const W=680,H=200,P={t:12,r:12,b:24,l:38};
-  const vals=dados.map(d=>d[chave]).filter(v=>v!=null);
-  if(vals.length<1) return `<p class="vazio">Sem dados ainda.</p>`;
-  const [min,max]=dominio||[Math.min(...vals)-1,Math.max(...vals)+1];
-  const x=i=>P.l+(W-P.l-P.r)*i/29;
-  const y=v=>P.t+(H-P.t-P.b)*(1-(v-min)/(max-min||1));
-  let dstr='',prev=false;
-  dados.forEach((d,i)=>{ if(d[chave]==null){prev=false;return}
-    dstr += (prev?'L':'M')+x(i)+' '+y(d[chave])+' '; prev=true; });
+  const W=680,H=210,P={t:14,r:14,b:28,l:44};
+  const vals=dados.map(d=>d[chave]).filter(v=>v!=null).map(Number);
+  if(!vals.length) return `<p class="vazio">Sem dados ainda.</p>`;
+  let [min,max] = dominio || [Math.min(...vals), Math.max(...vals)];
+  if(max-min < 1e-9){ min-=1; max+=1; }          // valor único: abre a escala
+  else if(!dominio){ const f=(max-min)*0.12; min-=f; max+=f; }
+  const x=i=>P.l+(W-P.l-P.r)*i/(dados.length-1);
+  const y=v=>P.t+(H-P.t-P.b)*(1-(v-min)/(max-min));
+
+  /* segmentos separados quando há lacunas */
+  let d='', abrindo=true;
+  dados.forEach((p2,i)=>{
+    if(p2[chave]==null){ abrindo=true; return; }
+    d += (abrindo?'M':'L')+x(i).toFixed(1)+' '+y(Number(p2[chave])).toFixed(1)+' ';
+    abrindo=false;
+  });
+
   const ticks=[min,(min+max)/2,max];
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-    ${ticks.map(t=>`<line x1="${P.l}" x2="${W-P.r}" y1="${y(t)}" y2="${y(t)}"
-      stroke="var(--linha)" stroke-dasharray="2 4"/>
-      <text x="4" y="${y(t)+3}">${fmt?fmt(t):Math.round(t)}</text>`).join('')}
-    ${ref!=null?`<line x1="${P.l}" x2="${W-P.r}" y1="${y(ref)}" y2="${y(ref)}"
-      stroke="var(--fraco)" stroke-dasharray="4 4"/>`:''}
-    <path d="${dstr}" fill="none" stroke="${cor}" stroke-width="2.5"
-      stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
-    ${dados.map((d,i)=>d[chave]!=null?`<circle cx="${x(i)}" cy="${y(d[chave])}" r="3" fill="${cor}"/>`:'').join('')}
-    ${dados.filter((_,i)=>i%5===0).map((d,j)=>`<text x="${x(j*5)}" y="${H-6}" text-anchor="middle">${d.rot}</text>`).join('')}
+  const rotulos=dados.map((p2,i)=>({p2,i})).filter(o=>o.i%5===0||o.i===dados.length-1);
+
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">
+    ${ticks.map(t=>`<line x1="${P.l}" x2="${W-P.r}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"
+      stroke="${C.linha}" stroke-dasharray="2 4"/>
+      <text x="6" y="${(y(t)+3).toFixed(1)}" style="font-size:10px;fill:${C.fraco}">${fmt?fmt(t):Math.round(t)}</text>`).join('')}
+    ${ref!=null&&ref>=min&&ref<=max?`<line x1="${P.l}" x2="${W-P.r}" y1="${y(ref).toFixed(1)}" y2="${y(ref).toFixed(1)}"
+      stroke="${C.fraco}" stroke-dasharray="5 4" opacity=".7"/>`:''}
+    ${vals.length>1?`<path d="${d}" fill="none" stroke="${cor}" stroke-width="2.5"
+      stroke-linejoin="round" stroke-linecap="round"/>`:''}
+    ${dados.map((p2,i)=>p2[chave]!=null
+      ? `<circle cx="${x(i).toFixed(1)}" cy="${y(Number(p2[chave])).toFixed(1)}" r="3.5" fill="${cor}"/>`:'').join('')}
+    ${rotulos.map(o=>`<text x="${x(o.i).toFixed(1)}" y="${H-8}" text-anchor="middle"
+      style="font-size:10px;fill:${C.fraco}">${o.p2.rot}</text>`).join('')}
   </svg>`;
 }
 
 function grafBarras(dados,chave,cor,max,refs){
-  const W=680,H=200,P={t:12,r:12,b:24,l:38};
-  const x=i=>P.l+(W-P.l-P.r)*i/dados.length;
-  const bw=(W-P.l-P.r)/dados.length*0.6;
-  const y=v=>P.t+(H-P.t-P.b)*(1-v/max);
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-    ${[0,max/2,max].map(t=>`<line x1="${P.l}" x2="${W-P.r}" y1="${y(t)}" y2="${y(t)}"
-      stroke="var(--linha)" stroke-dasharray="2 4"/><text x="4" y="${y(t)+3}">${Math.round(t)}</text>`).join('')}
-    ${(refs||[]).map(([v,c,d])=>`<line x1="${P.l}" x2="${W-P.r}" y1="${y(v)}" y2="${y(v)}"
-      stroke="${c}" stroke-width="1.5" ${d?'stroke-dasharray="4 4"':''}/>`).join('')}
-    ${dados.map((d,i)=>d[chave]?`<rect x="${x(i)}" y="${y(d[chave])}" width="${bw}"
-      height="${H-P.b-y(d[chave])}" fill="${cor}" rx="2"/>`:'').join('')}
-    ${dados.filter((_,i)=>i%5===0).map((d,j)=>`<text x="${x(j*5)+bw/2}" y="${H-6}" text-anchor="middle">${d.rot||d.sem}</text>`).join('')}
+  const W=680,H=210,P={t:14,r:14,b:28,l:44};
+  const n=dados.length;
+  const passo=(W-P.l-P.r)/n;
+  const bw=Math.min(passo*0.62, 22);
+  const x=i=>P.l+passo*i+(passo-bw)/2;
+  const y=v=>P.t+(H-P.t-P.b)*(1-Math.min(v,max)/max);
+  const rotulos=dados.map((p2,i)=>({p2,i})).filter(o=>n<=6||o.i%5===0||o.i===n-1);
+
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">
+    ${[0,max/2,max].map(t=>`<line x1="${P.l}" x2="${W-P.r}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"
+      stroke="${C.linha}" stroke-dasharray="2 4"/>
+      <text x="6" y="${(y(t)+3).toFixed(1)}" style="font-size:10px;fill:${C.fraco}">${Math.round(t)}</text>`).join('')}
+    ${(refs||[]).map(([v,c,tracejado])=>v<=max?`<line x1="${P.l}" x2="${W-P.r}"
+      y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${c}" stroke-width="1.5"
+      ${tracejado?'stroke-dasharray="5 4"':''}/>`:'').join('')}
+    ${dados.map((p2,i)=>{const v=Number(p2[chave]);
+      if(!v) return '';
+      return `<rect x="${x(i).toFixed(1)}" y="${y(v).toFixed(1)}" width="${bw.toFixed(1)}"
+        height="${(H-P.b-y(v)).toFixed(1)}" fill="${cor}" rx="2"/>`}).join('')}
+    ${rotulos.map(o=>`<text x="${(x(o.i)+bw/2).toFixed(1)}" y="${H-8}" text-anchor="middle"
+      style="font-size:10px;fill:${C.fraco}">${o.p2.rot||o.p2.semana||''}</text>`).join('')}
   </svg>`;
 }
 
