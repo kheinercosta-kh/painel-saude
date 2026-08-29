@@ -226,7 +226,7 @@ const CARDIO = {
 };
 const AGENDA = ['descanso','forcaA','zona2','forcaB','caminhada','corrida','caminhada'];
 const METAS_PADRAO = {piso_kcal:1900,kcal_alvo:2150,gasto_kcal:2697,proteina_g:183,
-  agua_l:2.75,cafeina_max_ml:450,peso_base:90.8,fc_base:57,sono_alvo_min:435,
+  agua_l:2.75,cafeina_max_ml:450,peso_base:90.8,fc_base:57,sono_alvo_min:435, limite_tela:'21:00',
   inicio_plano:'2026-08-26'};
 
 /* ================= UTIL ================= */
@@ -510,7 +510,22 @@ function viewHoje(){
         <span class="etf" style="margin-left:auto">alvo ${hm(M.sono_alvo_min)}</span>
       </div>
     </div>
-  </section>
+      <div style="margin-top:16px">
+      <div class="topo">
+        <span class="rot">Última vez no celular</span>
+        <span class="etf" style="color:${(()=>{ if(!r.ultima_tela) return 'var(--fraco)';
+          return r.ultima_tela <= M.limite_tela ? 'var(--teal)' : 'var(--barro)' })()}">
+          ${!r.ultima_tela?`limite ${M.limite_tela.slice(0,5)}`
+            : r.ultima_tela<=M.limite_tela ? 'dentro do limite'
+            : `${(()=>{const [a,b]=r.ultima_tela.split(':').map(Number);
+                 const [c,d]=M.limite_tela.split(':').map(Number);
+                 const m=(a*60+b)-(c*60+d); return m>=60?`${Math.floor(m/60)}h${String(m%60).padStart(2,'0')} depois`:`${m} min depois`})()}`}
+        </span>
+      </div>
+      <input type="time" data-campo="ultima_tela" value="${r.ultima_tela?r.ultima_tela.slice(0,5):''}"
+        style="margin-top:6px">
+    </div>
+</section>
 
   <section class="cartao">
     <div class="topo"><span class="et">Saúde sexual</span>
@@ -580,6 +595,7 @@ const chip=(id,rot,cor,on,lista)=>`<button class="chip" data-lista="${lista}" da
 function media(arr){ const v=arr.filter(x=>x!=null&&!isNaN(x));
   return v.length ? v.reduce((a,b)=>a+Number(b),0)/v.length : null }
 const pctd = (a,b)=> b ? Math.round(a/b*100) : 0;
+const minTela = t => { if(!t) return null; const [a,b]=t.split(':').map(Number); return a*60+b };
 
 /* --- gráficos em SVG --- */
 function svgDonut(p,cor,{r=48,w=12,txt,sub,size=124}={}){
@@ -705,6 +721,9 @@ function viewPainel(){
   if(!ck.cafeina14) pend.push(['Encerrar a cafeína até as 14h',0]);
   if(!treinouHoje) pend.push(['Sessão do dia: '+(SESSOES.find(x=>x[0]===AGENDA[new Date(hj+'T00:00:00').getDay()])?.[1]||'—'),0]);
   if(!ck.cama) pend.push(['Na cama até 22:30',0]);
+  if(r.ultima_tela && r.ultima_tela>M.limite_tela)
+    pend.push([`Celular usado até ${r.ultima_tela.slice(0,5)} — limite ${M.limite_tela.slice(0,5)}`,0]);
+  if(!r.ultima_tela) pend.push([`Registrar a última vez no celular (limite ${M.limite_tela.slice(0,5)})`,0]);
 
   /* ---- agregados ---- */
   const regs=s.filter(d=>S.registros[d.data]).map(d=>({...d,reg:S.registros[d.data]}));
@@ -722,6 +741,7 @@ function viewPainel(){
     ['sono', pctd(media(regs.map(d=>d.sono))||0, M.sono_alvo_min)],
     ['treino', pctd(treinos, n)],
     ['cafeína', pctd(regs.filter(d=>d.reg.checklist?.cafeina14).length, n)],
+    ['telas', pctd(regs.filter(d=>d.reg.ultima_tela && d.reg.ultima_tela<=M.limite_tela).length, n)],
     ['estresse', (()=>{ const e=media(regs.map(d=>d.reg.estresse_geral));
         return e!=null ? Math.max(0, Math.round(100-e)) : pctd(n-diasCrise, n) })()],
   ];
@@ -734,6 +754,8 @@ function viewPainel(){
       media(semC.map(d=>d.reg.estresse_geral)), v=>v!=null?Math.round(v)+'':'—'],
     ['Minutos em estresse alto', media(comC.map(d=>d.reg.estresse_alto_min)),
       media(semC.map(d=>d.reg.estresse_alto_min)), v=>v!=null?Math.round(v)+' min':'—'],
+    ['Largou o celular às', media(comC.map(d=>minTela(d.reg.ultima_tela))),
+      media(semC.map(d=>minTela(d.reg.ultima_tela))), v=>v!=null?hm(Math.round(v)):'—'],
   ];
 
   const ultPeso=[...regs].reverse().find(d=>d.peso)?.peso;
@@ -1017,10 +1039,15 @@ function viewEvolucao(){
   const sonos=s.filter(d=>d.sono).map(d=>d.sono);
   const sonoMed=sonos.length?Math.round(sonos.reduce((a,b)=>a+b)/sonos.length):null;
   const treinos=s.reduce((a,b)=>a+b.treinou,0);
-  const sem=[1,2,3,4].map(n=>({sem:'S'+n,
-    treinou:s.slice((n-1)*7,n*7).reduce((a,b)=>a+b.treinou,0),
+  /* 4 semanas cobrindo os 30 dias: a última leva os dias 22 a 30 */
+  const faixas=[[1,7],[8,14],[15,21],[22,30]];
+  const sem=faixas.map(([ini,fim],k)=>({
+    rot:'Sem '+(k+1),
+    treinou:s.slice(ini-1,fim).reduce((a,b)=>a+b.treinou,0),
     crises:S.crises.filter(c=>{const d=diaPlano(c.data,M.inicio_plano);
-      return d>(n-1)*7 && d<=n*7}).length}));
+      return d>=ini && d<=fim}).length,
+    meta:(fim-ini+1)>=8?6:5,
+  }));
 
   const card=(rot,val,un,nota)=>`<div class="rcard"><span class="et">${rot}</span>
     <p class="rval">${val}<span style="font:400 13px 'IBM Plex Sans';color:var(--fraco)"> ${un}</span></p>
@@ -1044,14 +1071,14 @@ function viewEvolucao(){
     ${grafLinha(s,'fc','var(--barro)',[48,68],M.fc_base)}</section>
   <section class="cartao"><span class="et">Calorias e piso</span>
     <p class="nota">A linha vermelha é o piso. Barras abaixo dela são o sinal de alerta.</p>
-    ${grafBarras(s,'kcal','var(--teal)',3000,[[M.piso_kcal,'var(--barro)',0],[M.kcal_alvo,'var(--teal)',1]])}</section>
+    ${grafBarras(s,'kcal',C.teal,3000,[[M.piso_kcal,C.barro,0],[M.kcal_alvo,C.teal,1]])}</section>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
     <section class="cartao"><span class="et">Treinos por semana</span>
       <p class="nota">Meta: 5 por semana.</p>
-      ${grafBarras(sem,'treinou','var(--teal)',7,[[5,'var(--teal)',1]])}</section>
+      ${grafBarras(sem,'treinou',C.teal,9,[[5,C.teal,1]])}</section>
     <section class="cartao"><span class="et">Crises por semana</span>
       <p class="nota">Alvo: queda de ~30% até a semana 4.</p>
-      ${grafBarras(sem,'crises','var(--barro)',Math.max(3,...sem.map(x=>x.crises)),[])}</section>
+      ${grafBarras(sem,'crises',C.barro,Math.max(4,...sem.map(x=>x.crises)),[])}</section>
   </div>`;
 }
 
@@ -1123,6 +1150,11 @@ function viewMetas(){
         <div style="display:flex;align-items:center;gap:6px">
           <input type="number" data-meta="${id}" value="${S.metas[id]}">
           <span class="suf">${un}</span></div></div>`).join('')}
+      <div class="metalinha">
+        <div><p style="font:400 14px 'IBM Plex Sans';margin:0">Limite de telas</p>
+          <p class="nota" style="margin:2px 0 0">Última vez no celular antes de dormir.</p></div>
+        <input type="time" data-metatempo="limite_tela" value="${(S.metas.limite_tela||'21:00').slice(0,5)}" style="width:110px">
+      </div>
       <div class="metalinha"><div><p style="font:400 14px 'IBM Plex Sans';margin:0">Início do plano</p></div>
         <input type="date" data-meta="inicio_plano" value="${S.metas.inicio_plano}" style="width:150px"></div>
     </div>
@@ -1186,6 +1218,9 @@ function ligarEventos(){
     marcar('cargas', {[`${ex}-${s}`]:linha});
   });
 
+  document.querySelectorAll('[data-metatempo]').forEach(i=>i.oninput=()=>{
+    S.metas[i.dataset.metatempo]=i.value; marcar('metas',{});
+  });
   document.querySelectorAll('[data-meta]').forEach(i=>i.oninput=()=>{
     S.metas[i.dataset.meta] = i.type==='number'?Number(i.value):i.value;
     marcar('metas',{});
