@@ -146,6 +146,40 @@ svg text{font-family:'IBM Plex Mono',monospace}
   .anim{transition:stroke-dashoffset .9s cubic-bezier(.4,0,.2,1)}
   .dia{transition:transform .12s}
 }
+
+/* ---------- relatório ---------- */
+.relCabecalho{border-bottom:2px solid var(--tinta);padding-bottom:12px;margin-bottom:20px}
+.relCabecalho h2{font:700 22px/1.2 'IBM Plex Sans Condensed';margin:0 0 6px}
+.relCabecalho p{font:400 13px/1.5 'IBM Plex Sans';color:var(--fraco);margin:0}
+.relAviso{font-size:11px!important;font-style:italic;margin-top:8px!important}
+.relSec{margin-bottom:26px;break-inside:avoid}
+.relSec h3{font:600 15px 'IBM Plex Sans';margin:0 0 10px;padding-bottom:5px;
+  border-bottom:1px solid var(--linha)}
+.relSec h4{font:600 13px 'IBM Plex Sans';margin:18px 0 8px;color:var(--fraco)}
+.relTexto{font:400 13px/1.6 'IBM Plex Sans';white-space:pre-wrap;margin:0}
+.relTab{width:100%;border-collapse:collapse;font:400 13px 'IBM Plex Sans'}
+.relTab th{text-align:left;font-weight:400;color:var(--fraco);padding:6px 8px 6px 0;
+  vertical-align:top}
+.relTab td{padding:6px 8px 6px 0;font-family:'IBM Plex Mono',monospace;font-size:12px}
+.relTab tbody tr{border-bottom:1px solid var(--linha)}
+.relLista thead th{font:600 10px 'IBM Plex Mono';text-transform:uppercase;
+  letter-spacing:.06em;border-bottom:1.5px solid var(--tinta);padding-bottom:5px}
+.relLista td{font-size:11px;padding:5px 8px 5px 0}
+.relLista td:last-child{font-family:'IBM Plex Sans',sans-serif;font-size:11px}
+.relGrafico{margin:14px 0}
+.relLegenda{font:400 11px/1.5 'IBM Plex Sans';color:var(--fraco);margin:6px 0 0}
+.relAnotacao{border-bottom:1px solid var(--linha);height:34px}
+#relatorio{background:var(--papel);border:1px solid var(--linha);border-radius:12px;padding:24px}
+
+@media print{
+  @page{margin:14mm}
+  body{background:#fff;padding:0;font-size:11pt}
+  .naoImprimir,nav.abas,header,footer,#msgerro{display:none!important}
+  #relatorio{border:none;border-radius:0;padding:0;background:#fff}
+  .relSec{page-break-inside:avoid}
+  .relTab td,.relTab th{color:#000}
+  svg{max-width:100%}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -227,7 +261,7 @@ const CARDIO = {
 const AGENDA = ['descanso','forcaA','zona2','forcaB','caminhada','corrida','caminhada'];
 const METAS_PADRAO = {piso_kcal:1900,kcal_alvo:2150,gasto_kcal:2697,proteina_g:183,
   agua_l:2.75,cafeina_max_ml:450,peso_base:90.8,fc_base:57,sono_alvo_min:435, limite_tela:'21:00',
-  inicio_plano:'2026-08-26'};
+  medicacoes:'', inicio_plano:'2026-08-26'};
 
 /* ================= UTIL ================= */
 const iso = d => new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
@@ -392,7 +426,7 @@ function render(){
     <div id="msgerro" class="erro"></div>
     <nav class="abas">
       ${[['painel','Painel'],['hoje','Hoje'],['treino','Treino'],['evolucao','Evolução'],
-         ['crises','Crises'],['metas','Metas']]
+         ['crises','Crises'],['relatorio','Relatório'],['metas','Metas']]
         .map(([k,r])=>`<button data-aba="${k}" class="${S.aba===k?'on':''}">${r}${
           k==='crises'&&S.crises.length?` <span class="tag">${S.crises.length}</span>`:''}</button>`).join('')}
       <span id="estado"></span>
@@ -404,7 +438,8 @@ function render(){
     S.aba==='hoje' ? viewHoje() :
     S.aba==='treino' ? viewTreino() :
     S.aba==='evolucao' ? viewEvolucao() :
-    S.aba==='crises' ? viewCrises() : viewMetas();
+    S.aba==='crises' ? viewCrises() :
+    S.aba==='relatorio' ? viewRelatorio() : viewMetas();
 
   ligarEventos(); pintarEstado();
 }
@@ -890,6 +925,170 @@ function viewPainel(){
     começam a se preencher a partir daí.</p>`:''}`;
 }
 
+/* ---------- RELATÓRIO PARA CONSULTA ---------- */
+function viewRelatorio(){
+  const M=S.metas, s=serie();
+  const regs=s.filter(d=>S.registros[d.data]).map(d=>({...d,reg:S.registros[d.data]}));
+  const n=regs.length;
+  const diaAtual=diaPlano(hojeIso(), M.inicio_plano);
+  const datasCrise=new Set(S.crises.map(c=>c.data));
+  const comC=regs.filter(d=>datasCrise.has(d.data));
+  const semC=regs.filter(d=>!datasCrise.has(d.data));
+  const comKcal=regs.filter(d=>d.kcal!=null);
+  const ultPeso=[...regs].reverse().find(d=>d.peso)?.peso;
+  const crisesOrd=[...S.crises].sort((a,b)=>
+    (a.data+(a.hora||'')).localeCompare(b.data+(b.hora||'')));
+
+  const relacoes=regs.filter(d=>d.reg.houve_relacao);
+  const dific=relacoes.filter(d=>d.reg.ejaculacao && d.reg.ejaculacao!=='sim');
+  const comAns=relacoes.filter(d=>d.reg.ansiedade_durante);
+
+  const num=(v,dec=0)=>v==null?'—':Number(v).toFixed(dec);
+  const linha=(rot,val)=>`<tr><th>${rot}</th><td>${val}</td></tr>`;
+
+  return `
+  <div class="naoImprimir" style="margin-bottom:16px">
+    <button class="btn" id="btnImprimir" style="width:100%">Imprimir ou salvar em PDF</button>
+    <p class="nota" style="text-align:center">No iPhone: toque, depois escolha
+      compartilhar e "Salvar em Arquivos" para gerar o PDF.</p>
+  </div>
+
+  <div id="relatorio">
+    <header class="relCabecalho">
+      <h2>Registro de acompanhamento</h2>
+      <p>Plano de 30 dias — ansiedade, sono e composição corporal<br>
+        Período: ${rotuloData(M.inicio_plano)} a ${rotuloData(hojeIso())} ·
+        dia ${diaAtual} de 30 · ${n} dia${n===1?'':'s'} com registro</p>
+      <p class="relAviso">Registro pessoal feito pelo paciente. Não é laudo nem
+        substitui avaliação clínica.</p>
+    </header>
+
+    <section class="relSec">
+      <h3>Medicações em uso</h3>
+      <pre class="relTexto">${esc(M.medicacoes||'—')}</pre>
+    </section>
+
+    <section class="relSec">
+      <h3>Crises — o dado principal</h3>
+      ${S.crises.length===0
+        ? `<p class="relTexto">Nenhuma crise registrada no período.</p>`
+        : `<table class="relTab"><tbody>
+        ${linha('Total de crises', S.crises.length)}
+        ${linha('Dias com crise', `${comC.length} de ${n} dias registrados`)}
+        ${linha('Intensidade média', num(media(S.crises.map(c=>c.intensidade)),1)+' / 10')}
+        ${linha('Intensidade máxima', Math.max(...S.crises.map(c=>Number(c.intensidade)||0))+' / 10')}
+        ${linha('Duração média', (()=>{const v=media(S.crises.map(c=>c.duracao_min));
+          return v!=null?Math.round(v)+' min':'—'})())}
+        </tbody></table>
+
+        <div class="relGrafico">${svgCrises(S.crises, M.inicio_plano, C.barro)}
+          <p class="relLegenda">Cada ponto é uma crise. Altura = intensidade (0–10),
+            tamanho = duração.</p></div>
+
+        <h4>Registro detalhado</h4>
+        <table class="relTab relLista"><thead><tr>
+          <th>Data</th><th>Hora</th><th>Dur.</th><th>Int.</th>
+          <th>Jejum</th><th>Sono ant.</th><th>Cafeína</th><th>Contexto e sintomas</th>
+        </tr></thead><tbody>
+        ${crisesOrd.map(c=>`<tr>
+          <td>${c.data.slice(8,10)}/${c.data.slice(5,7)}</td>
+          <td>${c.hora?c.hora.slice(0,5):'—'}</td>
+          <td>${c.duracao_min?c.duracao_min+'min':'—'}</td>
+          <td><strong>${c.intensidade??'—'}</strong></td>
+          <td>${c.horas_ultima_refeicao?c.horas_ultima_refeicao+'h':'—'}</td>
+          <td>${c.sono_anterior_min?hm(c.sono_anterior_min):'—'}</td>
+          <td>${c.cafeina_ml?c.cafeina_ml+'ml':'—'}</td>
+          <td>${esc([c.contexto,c.sintomas].filter(Boolean).join(' · '))||'—'}</td>
+        </tr>`).join('')}
+        </tbody></table>`}
+    </section>
+
+    ${comC.length>0?`<section class="relSec">
+      <h3>Variáveis nos dias com e sem crise</h3>
+      <table class="relTab"><thead><tr><th></th><th>Com crise</th><th>Sem crise</th></tr></thead><tbody>
+      ${[['Sono', d=>d.sono, v=>v!=null?hm(Math.round(v)):'—'],
+         ['Cafeína', d=>d.reg.cafeina_ml, v=>v!=null?Math.round(v)+' ml':'—'],
+         ['Calorias', d=>d.kcal, v=>v!=null?Math.round(v)+' kcal':'—'],
+         ['Estresse (Garmin)', d=>d.reg.estresse_geral, v=>v!=null?Math.round(v):'—'],
+         ['Última tela', d=>minTela(d.reg.ultima_tela), v=>v!=null?hm(Math.round(v)):'—'],
+        ].map(([rot,get,fmt])=>{
+          const a=media(comC.map(get)), b=media(semC.map(get));
+          if(a==null&&b==null) return '';
+          return `<tr><th>${rot}</th><td>${fmt(a)}</td><td>${fmt(b)}</td></tr>`}).join('')}
+      </tbody></table>
+      ${comC.length<4?`<p class="relLegenda">Amostra pequena (${comC.length} dia${comC.length===1?'':'s'}
+        com crise). Tratar como observação preliminar.</p>`:''}
+    </section>`:''}
+
+    <section class="relSec">
+      <h3>Sono e sinais fisiológicos</h3>
+      <table class="relTab"><tbody>
+      ${linha('Sono médio', (()=>{const v=media(regs.map(d=>d.sono));
+        return v!=null?`${hm(Math.round(v))} (alvo ${hm(M.sono_alvo_min)})`:'—'})())}
+      ${linha('Menor noite', (()=>{const v=regs.map(d=>d.sono).filter(x=>x!=null);
+        return v.length?hm(Math.min(...v)):'—'})())}
+      ${linha('FC de repouso média', (()=>{const v=media(regs.map(d=>d.fc));
+        return v!=null?`${Math.round(v)} bpm (base ${M.fc_base})`:'—'})())}
+      ${linha('Escore de estresse médio', (()=>{const v=media(regs.map(d=>d.reg.estresse_geral));
+        return v!=null?Math.round(v):'—'})())}
+      ${linha('Cafeína média', (()=>{const v=media(regs.map(d=>d.reg.cafeina_ml));
+        return v!=null?Math.round(v)+' ml/dia':'—'})())}
+      </tbody></table>
+      <div class="relGrafico">
+        ${grafLinha(s,'sono',C.azul,[300,540],M.sono_alvo_min,v=>Math.floor(v/60)+'h')}
+        <p class="relLegenda">Duração do sono por dia. Linha tracejada: alvo de ${hm(M.sono_alvo_min)}.</p>
+      </div>
+    </section>
+
+    <section class="relSec">
+      <h3>Alimentação e peso</h3>
+      <table class="relTab"><tbody>
+      ${linha('Peso atual', ultPeso?`${ultPeso} kg (base ${M.peso_base} kg · ${
+        (ultPeso-M.peso_base>0?'+':'')}${(ultPeso-M.peso_base).toFixed(1)} kg)`:'—')}
+      ${linha('Calorias médias', (()=>{const v=media(comKcal.map(d=>d.kcal));
+        return v!=null?`${Math.round(v)} kcal (alvo ${M.kcal_alvo}, piso ${M.piso_kcal})`:'—'})())}
+      ${linha('Dias abaixo do piso', `${comKcal.filter(d=>d.kcal<M.piso_kcal).length} de ${comKcal.length}`)}
+      ${linha('Proteína média', (()=>{const v=media(regs.map(d=>d.reg.proteina_g));
+        return v!=null?`${Math.round(v)} g (alvo ${M.proteina_g} g)`:'—'})())}
+      </tbody></table>
+      <p class="relLegenda">Em uso de tirzepatida. O piso calórico existe por causa do
+        episódio de síncope associado a jejum prolongado.</p>
+    </section>
+
+    ${relacoes.length>0?`<section class="relSec">
+      <h3>Função sexual</h3>
+      <table class="relTab"><tbody>
+      ${linha('Registros no período', relacoes.length)}
+      ${linha('Dificuldade para ejacular', `${dific.length} de ${relacoes.length}`)}
+      ${linha('Palpitação ou falta de ar durante', `${comAns.length} de ${relacoes.length}`)}
+      ${linha('Libido média', (()=>{const v=media(relacoes.map(d=>d.reg.libido));
+        return v!=null?num(v,1)+' / 10':'—'})())}
+      </tbody></table>
+      <p class="relLegenda">Queixa relevante para revisão de esquema medicamentoso.</p>
+    </section>`:''}
+
+    <section class="relSec">
+      <h3>Adesão ao plano</h3>
+      <table class="relTab"><tbody>
+      ${[['Treinos realizados', regs.filter(d=>d.treinou).length, n],
+         ['Alimentou-se antes do antidepressivo', regs.filter(d=>d.reg.checklist?.comeuAntes).length, n],
+         ['Sem intervalo maior que 5h sem comer', regs.filter(d=>d.reg.checklist?.sem5h).length, n],
+         ['Cafeína encerrada até as 14h', regs.filter(d=>d.reg.checklist?.cafeina14).length, n],
+         ['Respiração 5 min (manhã e noite)', regs.filter(d=>d.reg.checklist?.respManha&&d.reg.checklist?.respNoite).length, n],
+        ].map(([rot,f,t])=>`<tr><th>${rot}</th><td>${f} de ${t} dias${
+          t?` (${Math.round(f/t*100)}%)`:''}</td></tr>`).join('')}
+      </tbody></table>
+    </section>
+
+    <section class="relSec">
+      <h3>Anotações</h3>
+      <div class="relAnotacao"></div>
+      <div class="relAnotacao"></div>
+      <div class="relAnotacao"></div>
+    </section>
+  </div>`;
+}
+
 /* ---------- TREINO ---------- */
 function viewTreino(){
   const r = reg();
@@ -1155,6 +1354,12 @@ function viewMetas(){
           <p class="nota" style="margin:2px 0 0">Última vez no celular antes de dormir.</p></div>
         <input type="time" data-metatempo="limite_tela" value="${(S.metas.limite_tela||'21:00').slice(0,5)}" style="width:110px">
       </div>
+      <div style="padding:12px 0;border-bottom:1px solid var(--linha)">
+        <p style="font:400 14px 'IBM Plex Sans';margin:0">Medicações em uso</p>
+        <p class="nota" style="margin:2px 0 6px">Aparece no relatório para consulta.</p>
+        <textarea data-metatexto="medicacoes" rows="5"
+          style="font-size:13px">${esc(S.metas.medicacoes||'')}</textarea>
+      </div>
       <div class="metalinha"><div><p style="font:400 14px 'IBM Plex Sans';margin:0">Início do plano</p></div>
         <input type="date" data-meta="inicio_plano" value="${S.metas.inicio_plano}" style="width:150px"></div>
     </div>
@@ -1218,6 +1423,9 @@ function ligarEventos(){
     marcar('cargas', {[`${ex}-${s}`]:linha});
   });
 
+  document.querySelectorAll('[data-metatexto]').forEach(i=>i.oninput=()=>{
+    S.metas[i.dataset.metatexto]=i.value; marcar('metas',{});
+  });
   document.querySelectorAll('[data-metatempo]').forEach(i=>i.oninput=()=>{
     S.metas[i.dataset.metatempo]=i.value; marcar('metas',{});
   });
@@ -1251,6 +1459,7 @@ function ligarEventos(){
       + (partes.length?' · '+partes.join(' · '):' · sem números')
       + (nCr?` · <span style="color:#E4938A">${nCr} crise${nCr>1?'s':''}</span>`:'');
   });
+  const bi=el('btnImprimir'); if(bi) bi.onclick=()=>window.print();
   const s=el('sair'); if(s) s.onclick=async()=>{await sb.auth.signOut(); location.reload()};
 }
 
