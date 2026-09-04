@@ -951,6 +951,24 @@ function viewPainel(){
 const FREQ = {diario:'Todo dia', semanal:'Semanal', se_necessario:'Se necessário'};
 const TIPOS = [['medicamento','Medicamento'],['suplemento','Suplemento']];
 
+/* aceita o formato antigo {ok,hora} e devolve sempre uma lista */
+/* normaliza o formato das tomadas e mantém compatibilidade com o formato antigo */
+function tomadasDe(r, item){
+  const t=(r.tomadas||{})[item.id];
+  const n=item.vezes_dia||1;
+  let arr = Array.isArray(t) ? t.slice()
+    : (t && typeof t==='object') ? [t] : [];
+  while(arr.length<n) arr.push({});
+  return arr.slice(0,n);
+}
+const horarioSugerido = (item,k)=>{
+  const hs=item.horarios||[];
+  if(hs[k]) return String(hs[k]).slice(0,5);
+  if(k===0 && item.horario) return String(item.horario).slice(0,5);
+  return '';
+};
+const dosesDiarias = it => (it.frequencia==='diario' ? (it.vezes_dia||1) : 0);
+
 function itensAtivos(){
   return (S.itens||[]).filter(i=>i.ativo)
     .sort((a,b)=>(a.ordem-b.ordem)||a.nome.localeCompare(b.nome));
@@ -966,7 +984,9 @@ function viewFarmacia(){
         <div>
           <p style="font:500 15px 'IBM Plex Sans';margin:0 0 3px">${esc(i.nome)}</p>
           <span class="etf">${esc(i.dose||'—')} · ${FREQ[i.frequencia]}${
-            i.horario?' · '+i.horario.slice(0,5):''}</span>
+            (i.vezes_dia||1)>1?` · ${i.vezes_dia}× ao dia`:''}${
+            (i.horarios&&i.horarios.length)?' · '+i.horarios.map(x=>String(x).slice(0,5)).join(', ')
+              :(i.horario?' · '+String(i.horario).slice(0,5):'')}</span>
         </div>
         <span class="tag">${i.tipo==='suplemento'?'suplemento':'medicamento'}</span>
       </div>
@@ -998,12 +1018,19 @@ function viewFarmacia(){
       <div><span class="rot">Dose por vez</span>
         <input type="text" id="it_dose" value="${esc(f.dose||'')}"
           placeholder="40 mg" style="margin-top:6px"></div>
-      <div><span class="rot">Horário</span>
-        <input type="time" id="it_horario" value="${f.horario?f.horario.slice(0,5):''}"
-          style="margin-top:6px"></div>
+      <div><span class="rot">Vezes por dia</span>
+        <input type="number" id="it_vezes" min="1" max="6"
+          value="${f.vezes_dia||1}" style="margin-top:6px"></div>
       <div><span class="rot">Início</span>
         <input type="date" id="it_inicio" value="${f.inicio||''}" style="margin-top:6px"></div>
     </div>
+    <div style="margin-top:14px"><span class="rot">Horários recomendados</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+        ${Array.from({length:Math.max(1,Math.min(6,f.vezes_dia||1))}).map((_,k)=>
+          `<input type="time" data-ithorario="${k}" value="${
+            (f.horarios&&f.horarios[k])?String(f.horarios[k]).slice(0,5):horarioSugerido(f,k)}"
+            style="width:112px">`).join('')}
+      </div></div>
     <div style="margin-top:14px"><span class="rot">Frequência</span>
       <div class="chips">
         ${Object.entries(FREQ).map(([v,r])=>`<button class="chip" data-itfreq="${v}"
@@ -1032,85 +1059,51 @@ function viewFarmacia(){
 function blocoTomadas(r){
   const itens=itensAtivos();
   if(!itens.length) return '';
-  const t=r.tomadas||{};
-  const feitos=itens.filter(i=>t[i.id]?.ok).length;
+  let feitos=0, total=0;
+  itens.forEach(i=>{ const a=tomadasDe(r,i);
+    total+=a.length; feitos+=a.filter(x=>x.ok).length; });
+  const ord=['1ª','2ª','3ª','4ª','5ª','6ª'];
+
   return `
   <section class="cartao">
     <div class="topo"><span class="et">Medicação e suplementos</span>
-      <span class="etf" style="color:${feitos===itens.length?'var(--teal)':'var(--fraco)'}">
-        ${feitos} de ${itens.length}</span></div>
+      <span class="etf" style="color:${feitos===total?'var(--teal)':'var(--fraco)'}">
+        ${feitos} de ${total}</span></div>
     <ul class="lst">
       ${itens.map(i=>{
-        const reg=t[i.id]||{};
-        const on=!!reg.ok;
-        const hora=reg.hora || (i.horario?i.horario.slice(0,5):'');
-        return `<li style="padding:9px 0;border-bottom:1px solid var(--linha)">
-          <div style="display:flex;align-items:center;gap:11px">
-            <button data-tomada="${i.id}" style="background:none;border:none;padding:0;cursor:pointer">
-              <span class="cx" style="background:${on?(i.tipo==='suplemento'?C.azul:C.teal):'transparent'};
-                border-color:${on?(i.tipo==='suplemento'?C.azul:C.teal):C.linha}">${on?'✓':''}</span>
-            </button>
-            <div style="flex:1;min-width:0">
-              <p style="font:400 14px 'IBM Plex Sans';margin:0;
-                color:${on?'var(--fraco)':'var(--tinta)'}">${esc(i.nome)}</p>
+        const tom=tomadasDe(r,i);
+        const cor = i.tipo==='suplemento'?C.azul:C.teal;
+        return `<li style="padding:11px 0;border-bottom:1px solid var(--linha)">
+          <div class="topo" style="margin-bottom:8px">
+            <div>
+              <p style="font:500 14px 'IBM Plex Sans';margin:0">${esc(i.nome)}</p>
               <span class="etf" style="font-size:11px">${esc(i.dose||'')}${
+                (i.vezes_dia||1)>1?` · ${i.vezes_dia}× ao dia`:''}${
                 i.frequencia!=='diario'?' · '+FREQ[i.frequencia]:''}</span>
             </div>
-            <input type="time" data-horatomada="${i.id}" value="${hora}"
-              style="width:104px;padding:6px 8px;font-size:13px">
+            ${tom.filter(x=>x.ok).length===tom.length
+              ? `<span class="etf" style="color:var(--teal)">✓</span>`
+              : `<span class="etf">${tom.filter(x=>x.ok).length}/${tom.length}</span>`}
           </div>
-          ${i.observacao&&!on?`<p class="nota" style="margin:4px 0 0 31px">${esc(i.observacao)}</p>`:''}
+          ${i.observacao?`<p class="nota" style="margin:0 0 8px">${esc(i.observacao)}</p>`:''}
+          ${tom.map((t,k)=>`<div style="margin-bottom:${k<tom.length-1?'8px':'0'}">
+            <div style="display:flex;align-items:center;gap:10px">
+              <button data-tomada="${i.id}" data-idx="${k}"
+                style="background:none;border:none;padding:0;cursor:pointer">
+                <span class="cx" style="background:${t.ok?cor:'transparent'};
+                  border-color:${t.ok?cor:C.linha}">${t.ok?'✓':''}</span></button>
+              ${tom.length>1?`<span class="etf" style="width:22px;font-size:11px">${ord[k]}</span>`:''}
+              <input type="time" data-horatomada="${i.id}" data-idx="${k}"
+                value="${t.hora||horarioSugerido(i,k)}"
+                style="width:104px;padding:6px 8px;font-size:13px">
+              <input type="text" data-notatomada="${i.id}" data-idx="${k}"
+                value="${esc(t.nota||'')}" placeholder="dose ou observação"
+                style="flex:1;min-width:90px;padding:6px 8px;font-size:12px">
+            </div></div>`).join('')}
         </li>`}).join('')}
     </ul>
+    <p class="nota">Use o campo de observação quando a dose for diferente da habitual.</p>
   </section>`;
-}
-
-
-function lerFormItem(){
-  const v=id=>el(id)?el(id).value:undefined;
-  return {nome:v('it_nome'), dose:v('it_dose'), horario:v('it_horario')||null,
-          inicio:v('it_inicio')||null, observacao:v('it_obs')};
-}
-
-async function salvarItem(){
-  const f={...S.itemEdicao, ...lerFormItem()};
-  if(!f.nome || !f.nome.trim()){ S.msg='Dê um nome ao item.'; pintarEstado(); return; }
-  const linha={nome:f.nome.trim(), tipo:f.tipo||'medicamento', dose:f.dose||null,
-    frequencia:f.frequencia||'diario', horario:f.horario||null, inicio:f.inicio||null,
-    observacao:f.observacao||null, ordem:f.ordem??((S.itens||[]).length+1), ativo:f.ativo??true};
-  try{
-    if(f.id){
-      const {data,error}=await sb.from('sd_itens_uso').update(linha).eq('id',f.id).select().single();
-      if(error) throw error;
-      S.itens=(S.itens||[]).map(x=>x.id===f.id?data:x);
-    }else{
-      const {data,error}=await sb.from('sd_itens_uso').insert(linha).select().single();
-      if(error) throw error;
-      S.itens=[...(S.itens||[]), data];
-    }
-    S.itemEdicao=null; S.msg='';
-  }catch(e){ S.msg='Erro ao salvar: '+(e.message||e); }
-  render();
-}
-
-async function alternarItem(id){
-  const it=(S.itens||[]).find(x=>x.id===id); if(!it) return;
-  try{
-    const {data,error}=await sb.from('sd_itens_uso').update({ativo:!it.ativo,
-      fim: it.ativo?hojeIso():null}).eq('id',id).select().single();
-    if(error) throw error;
-    S.itens=S.itens.map(x=>x.id===id?data:x);
-  }catch(e){ S.msg='Erro: '+(e.message||e); }
-  render();
-}
-
-async function excluirItem(id){
-  try{
-    const {error}=await sb.from('sd_itens_uso').delete().eq('id',id);
-    if(error) throw error;
-    S.itens=(S.itens||[]).filter(x=>x.id!==id);
-  }catch(e){ S.msg='Erro: '+(e.message||e); }
-  render();
 }
 
 /* ---------- RELATÓRIO PARA CONSULTA ---------- */
@@ -1162,28 +1155,95 @@ function viewRelatorio(){
     </div>
 
     <section class="relSec">
-      <h3>Medicações e suplementos em uso</h3>
+      <h3>Farmácia — medicamentos e suplementos</h3>
       ${(()=>{
         const at=itensAtivos();
-        if(!at.length) return `<pre class="relTexto">${esc(M.medicacoes||'—')}</pre>`;
         const susp=(S.itens||[]).filter(i=>!i.ativo);
-        return `<table class="relTab relLista"><thead><tr>
-          <th>Item</th><th>Tipo</th><th>Dose</th><th>Frequência</th><th>Horário</th><th>Início</th>
+        if(!at.length && !susp.length)
+          return `<pre class="relTexto">${esc(M.medicacoes||'—')}</pre>`;
+
+        /* adesão por item, considerando as tomadas de cada dia */
+        const diarios=at.filter(i=>i.frequencia==='diario');
+        const porItem=diarios.map(i=>{
+          let tom=0, poss=0;
+          regs.forEach(d=>{ const a=tomadasDe(d.reg,i);
+            poss+=a.length; tom+=a.filter(x=>x.ok).length; });
+          return {i, tom, poss, pct: poss?tom/poss:null};
+        });
+        const totTom=porItem.reduce((a,b)=>a+b.tom,0);
+        const totPoss=porItem.reduce((a,b)=>a+b.poss,0);
+        const adesaoGeral = totPoss? totTom/totPoss : null;
+
+        /* anotações de dose fora do habitual */
+        const notas=[];
+        regs.forEach(d=>at.forEach(i=>tomadasDe(d.reg,i).forEach((t,k)=>{
+          if(t.nota) notas.push({data:d.data, nome:i.nome, hora:t.hora, nota:t.nota});
+        })));
+
+        /* crises nos dias de adesão completa vs incompleta */
+        const datasCr=new Set(S.crises.map(c=>c.data));
+        const completos=[], incompletos=[];
+        regs.forEach(d=>{
+          if(!diarios.length) return;
+          const ok=diarios.every(i=>tomadasDe(d.reg,i).every(x=>x.ok));
+          (ok?completos:incompletos).push(d);
+        });
+        const crisesEm=g=>g.length
+          ? S.crises.filter(c=>g.some(d=>d.data===c.data)).length/g.length : null;
+        const crC=crisesEm(completos), crI=crisesEm(incompletos);
+
+        return `
+        <table class="relTab relLista"><thead><tr>
+          <th>Item</th><th>Tipo</th><th>Dose</th><th>Frequência</th>
+          <th>Horários</th><th>Início</th><th>Adesão</th>
         </tr></thead><tbody>
-        ${at.map(i=>`<tr><td>${esc(i.nome)}</td><td>${i.tipo}</td><td>${esc(i.dose||'—')}</td>
-          <td>${FREQ[i.frequencia]}</td><td>${i.horario?i.horario.slice(0,5):'—'}</td>
-          <td>${i.inicio?i.inicio.split('-').reverse().slice(0,2).join('/'):'—'}</td></tr>`).join('')}
+        ${at.map(i=>{
+          const pi=porItem.find(x=>x.i.id===i.id);
+          return `<tr><td>${esc(i.nome)}</td><td>${i.tipo}</td><td>${esc(i.dose||'—')}${
+            (i.vezes_dia||1)>1?` (${i.vezes_dia}×)`:''}</td>
+            <td>${FREQ[i.frequencia]}</td>
+            <td>${(i.horarios&&i.horarios.length)?i.horarios.map(x=>String(x).slice(0,5)).join(', ')
+              :(i.horario?String(i.horario).slice(0,5):'—')}</td>
+            <td>${i.inicio?i.inicio.split('-').reverse().slice(0,2).join('/'):'—'}</td>
+            <td>${pi&&pi.poss?`${pi.tom}/${pi.poss}`:'—'}</td></tr>`}).join('')}
         </tbody></table>
+
         ${susp.length?`<p class="relLegenda">Suspensos: ${susp.map(i=>
-          esc(i.nome)+(i.fim?` (até ${i.fim.split('-').reverse().slice(0,2).join('/')})`:'')).join(', ')}.</p>`:''}
-        ${(()=>{ const at2=itensAtivos().filter(i=>i.frequencia==='diario');
-          if(!at2.length||!n) return '';
-          const tot=regs.reduce((a,d)=>a+at2.filter(i=>d.reg.tomadas?.[i.id]?.ok).length,0);
-          const poss=at2.length*n;
-          return coment(`Registro de tomada em ${tot} de ${poss} oportunidades (${
-            Math.round(tot/poss*100)}%) entre os itens de uso diário.`,
-            tot/poss>=0.9?'bom':tot/poss>=0.7?'atencao':'ruim');
-        })()}`;
+          esc(i.nome)+(i.fim?` (até ${i.fim.split('-').reverse().slice(0,2).join('/')})`:'')
+          ).join(', ')}.</p>`:''}
+
+        ${notas.length?`<h4>Ajustes de dose e observações</h4>
+        <table class="relTab relLista"><thead><tr>
+          <th>Data</th><th>Item</th><th>Hora</th><th>Observação</th>
+        </tr></thead><tbody>
+        ${notas.slice(-12).reverse().map(x=>`<tr>
+          <td>${x.data.slice(8,10)}/${x.data.slice(5,7)}</td>
+          <td>${esc(x.nome)}</td><td>${x.hora?String(x.hora).slice(0,5):'—'}</td>
+          <td>${esc(x.nota)}</td></tr>`).join('')}
+        </tbody></table>`:''}
+
+        ${(crC!=null&&crI!=null&&completos.length&&incompletos.length)?`
+        <h4>Crises e adesão</h4>
+        <table class="relTab"><thead><tr><th></th>
+          <th>Adesão completa</th><th>Adesão incompleta</th></tr></thead><tbody>
+          <tr><th>Dias</th><td>${completos.length}</td><td>${incompletos.length}</td></tr>
+          <tr><th>Crises por dia</th><td>${crC.toFixed(2)}</td><td>${crI.toFixed(2)}</td></tr>
+        </tbody></table>`:''}
+
+        ${coment((()=>{
+          const p=[];
+          if(adesaoGeral!=null) p.push(`Adesão registrada de ${Math.round(adesaoGeral*100)}% nas
+            ${totPoss} tomadas previstas dos itens de uso diário`);
+          if(notas.length) p.push(`${notas.length} tomada${notas.length>1?'s':''} com observação
+            de dose ou horário fora do habitual`);
+          if(crC!=null&&crI!=null&&completos.length&&incompletos.length){
+            const dif=(crI-crC).toFixed(2);
+            p.push(`nos dias de adesão completa houve ${crC.toFixed(2)} crise por dia,
+              contra ${crI.toFixed(2)} nos demais`);
+          }
+          return p.length? p.join('; ')+'.' : '';
+        })(),
+        adesaoGeral==null?'neutro' : adesaoGeral>=0.9?'bom' : adesaoGeral>=0.7?'atencao':'ruim')}`;
       })()}
     </section>
 
@@ -1798,18 +1858,35 @@ function ligarEventos(){
   });
   const bi=el('btnImprimir'); if(bi) bi.onclick=()=>window.print();
   /* ---- farmácia ---- */
-  document.querySelectorAll('[data-tomada]').forEach(b=>b.onclick=()=>{
-    const id=b.dataset.tomada, rr=reg(), t={...(rr.tomadas||{})};
-    const item=(S.itens||[]).find(x=>x.id===id);
-    if(t[id]?.ok) delete t[id];
-    else t[id]={ok:true, hora:(t[id]?.hora)||(item?.horario?item.horario.slice(0,5):null)};
-    setCampo('tomadas', t); render();
-  });
-  document.querySelectorAll('[data-horatomada]').forEach(i=>i.oninput=()=>{
-    const id=i.dataset.horatomada, rr=reg(), t={...(rr.tomadas||{})};
-    t[id]={ok:t[id]?.ok??true, hora:i.value||null};
+  const mexerTomada=(id,k,mudanca)=>{
+    const rr=reg(), t={...(rr.tomadas||{})};
+    const item=(S.itens||[]).find(x=>x.id===id); if(!item) return;
+    const arr=tomadasDe(rr,item);
+    arr[k]={...arr[k], ...mudanca};
+    t[id]=arr;
     setCampo('tomadas', t);
+  };
+  document.querySelectorAll('[data-tomada]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.tomada, k=Number(b.dataset.idx);
+    const item=(S.itens||[]).find(x=>x.id===id);
+    const atual=tomadasDe(reg(),item)[k]||{};
+    mexerTomada(id,k, atual.ok
+      ? {ok:false}
+      : {ok:true, hora: atual.hora || horarioSugerido(item,k) || null});
+    render();
   });
+  document.querySelectorAll('[data-horatomada]').forEach(i=>i.oninput=()=>
+    mexerTomada(i.dataset.horatomada, Number(i.dataset.idx), {hora:i.value||null}));
+  document.querySelectorAll('[data-notatomada]').forEach(i=>i.oninput=()=>
+    mexerTomada(i.dataset.notatomada, Number(i.dataset.idx), {nota:i.value||null}));
+  document.querySelectorAll('[data-ithorario]').forEach(i=>i.oninput=()=>{
+    const hs=[...(S.itemEdicao.horarios||[])];
+    hs[Number(i.dataset.ithorario)]=i.value||null;
+    S.itemEdicao={...S.itemEdicao, ...lerFormItem(), horarios:hs};
+  });
+  const iv=el('it_vezes'); if(iv) iv.oninput=()=>{
+    S.itemEdicao={...S.itemEdicao, ...lerFormItem(),
+      vezes_dia:Math.max(1,Math.min(6,Number(iv.value)||1))}; render(); };
   const ni=el('novoItem'); if(ni) ni.onclick=()=>{
     S.itemEdicao={tipo:'medicamento',frequencia:'diario',inicio:hojeIso()}; render(); };
   const ci=el('cancelarItem'); if(ci) ci.onclick=()=>{ S.itemEdicao=null; render(); };
