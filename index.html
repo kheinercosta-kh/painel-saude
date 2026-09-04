@@ -203,7 +203,7 @@ svg text{font-family:'IBM Plex Mono',monospace}
 <body>
 <div id="app" class="wrap"></div>
 <footer>Registro pessoal. Não substitui avaliação médica.<br>
-<span style="font:400 10px 'IBM Plex Mono',monospace;opacity:.6">versão 2026-09-04.2 · doses múltiplas</span></footer>
+<span style="font:400 10px 'IBM Plex Mono',monospace;opacity:.6">versão 2026-09-04.3 · farmácia corrigida</span></footer>
 
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -1109,6 +1109,60 @@ function blocoTomadas(r){
     </ul>
     <p class="nota">Use o campo de observação quando a dose for diferente da habitual.</p>
   </section>`;
+}
+
+
+function lerFormItem(){
+  const v=id=>el(id)?el(id).value:undefined;
+  const hs=[...document.querySelectorAll('[data-ithorario]')].map(i=>i.value||null);
+  const o={nome:(v('it_nome')||'').trim(), dose:(v('it_dose')||'').trim(),
+           inicio:v('it_inicio')||null, observacao:(v('it_obs')||'').trim()};
+  if(hs.length) o.horarios=hs;   /* vezes_dia vem dos botões, em S.itemEdicao */
+  return o;
+}
+
+async function salvarItem(){
+  const f={...S.itemEdicao, ...lerFormItem()};
+  if(!f.nome){ S.msg='Dê um nome ao item.'; pintarEstado(); return; }
+  const hs=(f.horarios||[]).filter(Boolean);
+  const linha={nome:f.nome, tipo:f.tipo||'medicamento', dose:f.dose||null,
+    frequencia:f.frequencia||'diario',
+    vezes_dia:Math.max(1,Math.min(6,f.vezes_dia||1)),
+    horarios:hs, horario:hs[0]||null, inicio:f.inicio||null,
+    observacao:f.observacao||null, ordem:f.ordem??((S.itens||[]).length+1), ativo:f.ativo??true};
+  try{
+    if(f.id){
+      const {data,error}=await sb.from('sd_itens_uso').update(linha).eq('id',f.id).select().single();
+      if(error) throw error;
+      S.itens=(S.itens||[]).map(x=>x.id===f.id?data:x);
+    }else{
+      const {data,error}=await sb.from('sd_itens_uso').insert(linha).select().single();
+      if(error) throw error;
+      S.itens=[...(S.itens||[]), data];
+    }
+    S.itemEdicao=null; S.msg='';
+  }catch(e){ S.msg='Erro ao salvar: '+(e.message||e); }
+  render();
+}
+
+async function alternarItem(id){
+  const it=(S.itens||[]).find(x=>x.id===id); if(!it) return;
+  try{
+    const {data,error}=await sb.from('sd_itens_uso')
+      .update({ativo:!it.ativo, fim: it.ativo?hojeIso():null}).eq('id',id).select().single();
+    if(error) throw error;
+    S.itens=S.itens.map(x=>x.id===id?data:x);
+  }catch(e){ S.msg='Erro: '+(e.message||e); }
+  render();
+}
+
+async function excluirItem(id){
+  try{
+    const {error}=await sb.from('sd_itens_uso').delete().eq('id',id);
+    if(error) throw error;
+    S.itens=(S.itens||[]).filter(x=>x.id!==id);
+  }catch(e){ S.msg='Erro: '+(e.message||e); }
+  render();
 }
 
 /* ---------- RELATÓRIO PARA CONSULTA ---------- */
