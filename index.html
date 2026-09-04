@@ -203,7 +203,7 @@ svg text{font-family:'IBM Plex Mono',monospace}
 <body>
 <div id="app" class="wrap"></div>
 <footer>Registro pessoal. Não substitui avaliação médica.<br>
-<span style="font:400 10px 'IBM Plex Mono',monospace;opacity:.6">versão 2026-09-04.1 · farmácia</span></footer>
+<span style="font:400 10px 'IBM Plex Mono',monospace;opacity:.6">versão 2026-09-04.2 · doses múltiplas</span></footer>
 
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -1019,12 +1019,16 @@ function viewFarmacia(){
       <div><span class="rot">Dose por vez</span>
         <input type="text" id="it_dose" value="${esc(f.dose||'')}"
           placeholder="40 mg" style="margin-top:6px"></div>
-      <div><span class="rot">Vezes por dia</span>
-        <input type="number" id="it_vezes" min="1" max="6"
-          value="${f.vezes_dia||1}" style="margin-top:6px"></div>
       <div><span class="rot">Início</span>
         <input type="date" id="it_inicio" value="${f.inicio||''}" style="margin-top:6px"></div>
     </div>
+    <div style="margin-top:14px"><span class="rot">Vezes por dia</span>
+      <div class="chips">
+        ${[1,2,3,4,5,6].map(k=>`<button class="chip" data-itvezes="${k}"
+          style="min-width:52px;background:${(f.vezes_dia||1)===k?C.tinta:'transparent'};
+          color:${(f.vezes_dia||1)===k?'#fff':C.tinta};
+          border-color:${(f.vezes_dia||1)===k?C.tinta:C.linha}">${k}×</button>`).join('')}
+      </div></div>
     <div style="margin-top:14px"><span class="rot">Horários recomendados</span>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
         ${Array.from({length:Math.max(1,Math.min(6,f.vezes_dia||1))}).map((_,k)=>
@@ -1885,9 +1889,13 @@ function ligarEventos(){
     hs[Number(i.dataset.ithorario)]=i.value||null;
     S.itemEdicao={...S.itemEdicao, ...lerFormItem(), horarios:hs};
   });
-  const iv=el('it_vezes'); if(iv) iv.oninput=()=>{
-    S.itemEdicao={...S.itemEdicao, ...lerFormItem(),
-      vezes_dia:Math.max(1,Math.min(6,Number(iv.value)||1))}; render(); };
+  document.querySelectorAll('[data-itvezes]').forEach(b=>b.onclick=()=>{
+    const k=Number(b.dataset.itvezes);
+    const atual=lerFormItem();
+    const hs=[...(atual.horarios||S.itemEdicao.horarios||[])].slice(0,k);
+    S.itemEdicao={...S.itemEdicao, ...atual, vezes_dia:k, horarios:hs};
+    render();
+  });
   const ni=el('novoItem'); if(ni) ni.onclick=()=>{
     S.itemEdicao={tipo:'medicamento',frequencia:'diario',inicio:hojeIso()}; render(); };
   const ci=el('cancelarItem'); if(ci) ci.onclick=()=>{ S.itemEdicao=null; render(); };
@@ -1895,6 +1903,8 @@ function ligarEventos(){
     S.itemEdicao={...S.itemEdicao, ...lerFormItem(), tipo:b.dataset.ittipo}; render(); });
   document.querySelectorAll('[data-itfreq]').forEach(b=>b.onclick=()=>{
     S.itemEdicao={...S.itemEdicao, ...lerFormItem(), frequencia:b.dataset.itfreq}; render(); });
+  ['it_nome','it_dose','it_obs','it_inicio'].forEach(id=>{ const c=el(id);
+    if(c) c.onchange=()=>{ S.itemEdicao={...S.itemEdicao, ...lerFormItem()}; }; });
   document.querySelectorAll('[data-editaritem]').forEach(b=>b.onclick=()=>{
     S.itemEdicao={...(S.itens||[]).find(x=>x.id===b.dataset.editaritem)}; render(); });
   document.querySelectorAll('[data-alternaritem]').forEach(b=>b.onclick=()=>alternarItem(b.dataset.alternaritem));
