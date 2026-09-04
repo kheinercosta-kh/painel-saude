@@ -168,11 +168,28 @@ svg text{font-family:'IBM Plex Mono',monospace}
 .relLista td:last-child{font-family:'IBM Plex Sans',sans-serif;font-size:11px}
 .relGrafico{margin:14px 0}
 .relLegenda{font:400 11px/1.5 'IBM Plex Sans';color:var(--fraco);margin:6px 0 0}
+.relComent{font:400 12px/1.6 'IBM Plex Sans';color:var(--tinta);margin:10px 0 0;
+  padding:9px 12px 9px 30px;border-radius:5px;position:relative;
+  background:#F1F4F6;border:1px solid var(--linha)}
+.relComent .relSinal{position:absolute;left:11px;top:12px;width:9px;height:9px;
+  border-radius:50%;background:var(--fraco)}
+.relComent.bom{background:#E7F1EE;border-color:#B9D6CF}
+.relComent.bom .relSinal{background:#1F6F68}
+.relComent.atencao{background:#F8F0DC;border-color:#E3D2A6}
+.relComent.atencao .relSinal{background:#B98B2E}
+.relComent.ruim{background:#F8E8E5;border-color:#E4C6C0}
+.relComent.ruim .relSinal{background:#A2453A}
+.relLegendaSemaforo{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 18px}
+.relLegendaSemaforo span{display:flex;align-items:center;gap:6px;
+  font:400 11px 'IBM Plex Sans';color:var(--fraco)}
+.relLegendaSemaforo i{width:9px;height:9px;border-radius:50%;display:inline-block}
 .relAnotacao{border-bottom:1px solid var(--linha);height:34px}
 #relatorio{background:var(--papel);border:1px solid var(--linha);border-radius:12px;padding:24px}
 
 @media print{
   @page{margin:14mm}
+  .relComent{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .relLegendaSemaforo i{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body{background:#fff;padding:0;font-size:11pt}
   .naoImprimir,nav.abas,header,footer,#msgerro{display:none!important}
   #relatorio{border:none;border-radius:0;padding:0;background:#fff}
@@ -926,6 +943,9 @@ function viewPainel(){
 }
 
 /* ---------- RELATÓRIO PARA CONSULTA ---------- */
+const coment = (t, estado) => t
+  ? `<p class="relComent ${estado||'neutro'}"><span class="relSinal"></span>${t}</p>` : '';
+
 function viewRelatorio(){
   const M=S.metas, s=serie();
   const regs=s.filter(d=>S.registros[d.data]).map(d=>({...d,reg:S.registros[d.data]}));
@@ -963,6 +983,13 @@ function viewRelatorio(){
         substitui avaliação clínica.</p>
     </header>
 
+    <div class="relLegendaSemaforo">
+      <span><i style="background:#1F6F68"></i>melhora ou dentro do alvo</span>
+      <span><i style="background:#B98B2E"></i>atenção</span>
+      <span><i style="background:#A2453A"></i>piora ou fora do alvo</span>
+      <span><i style="background:#6C7A88"></i>descritivo</span>
+    </div>
+
     <section class="relSec">
       <h3>Medicações em uso</h3>
       <pre class="relTexto">${esc(M.medicacoes||'—')}</pre>
@@ -981,9 +1008,54 @@ function viewRelatorio(){
           return v!=null?Math.round(v)+' min':'—'})())}
         </tbody></table>
 
+        ${(()=>{
+          const meio=Math.ceil(diaAtual/2);
+          const p1=S.crises.filter(c=>diaPlano(c.data,M.inicio_plano)<=meio);
+          const p2=S.crises.filter(c=>diaPlano(c.data,M.inicio_plano)>meio);
+          if(!p1.length||!p2.length) return '';
+          const est=g=>({n:g.length,
+            dias:new Set(g.map(c=>c.data)).size,
+            dur:media(g.map(c=>c.duracao_min)),
+            int:media(g.map(c=>c.intensidade)),
+            tot:g.reduce((a,c)=>a+(Number(c.duracao_min)||0),0)});
+          const a=est(p1), b=est(p2);
+          const f=(v,u)=>v!=null?Math.round(v)+u:'—';
+          const varia=(x,y)=> (x&&y!=null&&x!==0) ? Math.round((y-x)/x*100) : null;
+          const dDur=varia(a.dur,b.dur), dInt=varia(a.int,b.int);
+          const mpdA=a.dias?a.tot/a.dias:null, mpdB=b.dias?b.tot/b.dias:null;
+          const dMpd=varia(mpdA,mpdB);
+          return `<h4>Evolução no período</h4>
+          <table class="relTab"><thead><tr><th></th>
+            <th>Dias 1–${meio}</th><th>Dias ${meio+1}–${diaAtual}</th><th>Variação</th></tr></thead><tbody>
+            <tr><th>Crises</th><td>${a.n}</td><td>${b.n}</td><td>—</td></tr>
+            <tr><th>Duração média</th><td>${f(a.dur,' min')}</td><td>${f(b.dur,' min')}</td>
+              <td>${dDur!=null?(dDur>0?'+':'')+dDur+'%':'—'}</td></tr>
+            <tr><th>Intensidade média</th><td>${a.int!=null?a.int.toFixed(1):'—'}</td>
+              <td>${b.int!=null?b.int.toFixed(1):'—'}</td>
+              <td>${dInt!=null?(dInt>0?'+':'')+dInt+'%':'—'}</td></tr>
+            <tr><th>Minutos em crise por dia afetado</th><td>${f(mpdA,' min')}</td>
+              <td>${f(mpdB,' min')}</td>
+              <td>${dMpd!=null?(dMpd>0?'+':'')+dMpd+'%':'—'}</td></tr>
+          </tbody></table>
+          ${coment(`A duração média ${dDur<0?'caiu':'subiu'} ${Math.abs(dDur)}% entre as duas metades
+            do período, enquanto a intensidade de pico ${Math.abs(dInt)<=15?'permaneceu estável':
+            (dInt<0?'caiu '+Math.abs(dInt)+'%':'subiu '+dInt+'%')}.
+            O tempo total em crise por dia afetado passou de ${f(mpdA,' min')} para ${f(mpdB,' min')}.`,
+            dDur==null?'neutro' : dDur<=-15?'bom' : dDur>=15?'ruim':'atencao')}`;
+        })()}
+
         <div class="relGrafico">${svgCrises(S.crises, M.inicio_plano, C.barro)}
           <p class="relLegenda">Cada ponto é uma crise. Altura = intensidade (0–10),
             tamanho = duração.</p></div>
+        ${coment((()=>{
+          const ctx=S.crises.map(c=>(c.contexto||'')).join(' ').toLowerCase();
+          const trab=(ctx.match(/trabalh|client|conta|projeto|sistema/g)||[]).length;
+          const desl=(ctx.match(/dirigind|trânsito|transito|na rua|indo |levando|buscar/g)||[]).length;
+          const p=[];
+          if(trab) p.push(`${trab} de ${S.crises.length} episódios mencionam trabalho ou obrigações`);
+          if(desl) p.push(`${desl} ocorreram em deslocamento ou transição`);
+          return p.length? p.join('; ')+'.' : '';
+        })(),'neutro')}
 
         <h4>Registro detalhado</h4>
         <table class="relTab relLista"><thead><tr>
@@ -1016,6 +1088,16 @@ function viewRelatorio(){
           if(a==null&&b==null) return '';
           return `<tr><th>${rot}</th><td>${fmt(a)}</td><td>${fmt(b)}</td></tr>`}).join('')}
       </tbody></table>
+      ${coment((()=>{
+        const s1=media(comC.map(d=>d.sono)), s2=media(semC.map(d=>d.sono));
+        if(s1==null||s2==null) return '';
+        const dif=Math.round(s2-s1);
+        return `Nos dias com crise o sono foi ${hm(Math.round(s1))}, contra ${hm(Math.round(s2))}
+          nos dias sem crise — diferença de ${Math.abs(dif)} minutos.
+          ${Math.abs(dif)>=30?'É a variável com maior separação entre os dois grupos.':''}`;
+      })(), (()=>{ const s1=media(comC.map(d=>d.sono)), s2=media(semC.map(d=>d.sono));
+        if(s1==null||s2==null) return 'neutro';
+        return (s2-s1)>=30 ? 'atencao' : 'neutro'; })())}
       ${comC.length<4?`<p class="relLegenda">Amostra pequena (${comC.length} dia${comC.length===1?'':'s'}
         com crise). Tratar como observação preliminar.</p>`:''}
     </section>`:''}
@@ -1038,6 +1120,28 @@ function viewRelatorio(){
         ${grafLinha(s,'sono',C.azul,[300,540],M.sono_alvo_min,v=>Math.floor(v/60)+'h')}
         <p class="relLegenda">Duração do sono por dia. Linha tracejada: alvo de ${hm(M.sono_alvo_min)}.</p>
       </div>
+      ${coment((()=>{
+        const comSono=regs.filter(d=>d.sono!=null);
+        const comFc=regs.filter(d=>d.fc!=null);
+        if(comSono.length<4) return '';
+        const ult3=comSono.slice(-3), ant=comSono.slice(0,-3);
+        const a=media(ant.map(d=>d.sono)), b=media(ult3.map(d=>d.sono));
+        const fcA=media(comFc.slice(0,-3).map(d=>d.fc)), fcB=media(comFc.slice(-3).map(d=>d.fc));
+        const p=[];
+        if(a!=null&&b!=null) p.push(`Nas últimas três noites o sono médio foi ${hm(Math.round(b))},
+          contra ${hm(Math.round(a))} nos dias anteriores`);
+        if(fcA!=null&&fcB!=null&&fcB>fcA) p.push(`no mesmo intervalo a FC de repouso subiu de
+          ${Math.round(fcA)} para ${Math.round(fcB)} bpm`);
+        return p.length? p.join(', ')+'.' : '';
+      })(), (()=>{
+        const cs=regs.filter(d=>d.sono!=null); if(cs.length<4) return 'neutro';
+        const a=media(cs.slice(0,-3).map(d=>d.sono)), b=media(cs.slice(-3).map(d=>d.sono));
+        if(a==null||b==null) return 'neutro';
+        if(b>=M.sono_alvo_min) return 'bom';
+        if(b < a-30) return 'ruim';
+        if(b < a) return 'atencao';
+        return 'bom';
+      })())}
     </section>
 
     <section class="relSec">
@@ -1051,6 +1155,19 @@ function viewRelatorio(){
       ${linha('Proteína média', (()=>{const v=media(regs.map(d=>d.reg.proteina_g));
         return v!=null?`${Math.round(v)} g (alvo ${M.proteina_g} g)`:'—'})())}
       </tbody></table>
+      ${coment((()=>{
+        const mk=media(comKcal.map(d=>d.kcal)), mg=media(regs.map(d=>d.reg.kcal_gasto));
+        if(mk==null) return '';
+        const dif=mg!=null?Math.round(mk-mg):null;
+        return `A ingestão média foi de ${Math.round(mk)} kcal, ${
+          mk>M.kcal_alvo?`${Math.round(mk-M.kcal_alvo)} kcal acima`:`${Math.round(M.kcal_alvo-mk)} kcal abaixo`}
+          do alvo de ${M.kcal_alvo}.${dif!=null?` O saldo médio em relação ao gasto foi de ${
+          dif>0?'+':''}${dif} kcal por dia.`:''}`;
+      })(), (()=>{ const mk=media(comKcal.map(d=>d.kcal)); if(mk==null) return 'neutro';
+        if(mk < M.piso_kcal) return 'ruim';
+        if(Math.abs(mk-M.kcal_alvo) <= 250) return 'bom';
+        if(Math.abs(mk-M.kcal_alvo) <= 700) return 'atencao';
+        return 'ruim'; })())}
       <p class="relLegenda">Em uso de tirzepatida. O piso calórico existe por causa do
         episódio de síncope associado a jejum prolongado.</p>
     </section>
@@ -1064,6 +1181,13 @@ function viewRelatorio(){
       ${linha('Libido média', (()=>{const v=media(relacoes.map(d=>d.reg.libido));
         return v!=null?num(v,1)+' / 10':'—'})())}
       </tbody></table>
+      ${coment((()=>{
+        const lib=media(relacoes.map(d=>d.reg.libido));
+        if(!relacoes.length) return '';
+        return `Dificuldade para ejacular em ${dific.length} de ${relacoes.length} registros,
+          com libido média de ${lib!=null?lib.toFixed(1):'—'}/10.${
+          comAns.length?` Sintomas de ativação autonômica durante o ato em ${comAns.length} deles.`:''}`;
+      })(), relacoes.length && (dific.length/relacoes.length)>=0.5 ? 'atencao' : 'neutro')}
       <p class="relLegenda">Queixa relevante para revisão de esquema medicamentoso.</p>
     </section>`:''}
 
@@ -1078,6 +1202,27 @@ function viewRelatorio(){
         ].map(([rot,f,t])=>`<tr><th>${rot}</th><td>${f} de ${t} dias${
           t?` (${Math.round(f/t*100)}%)`:''}</td></tr>`).join('')}
       </tbody></table>
+      ${coment((()=>{
+        const itens=[['treinos',regs.filter(d=>d.treinou).length],
+          ['alimentação antes do antidepressivo',regs.filter(d=>d.reg.checklist?.comeuAntes).length],
+          ['intervalos de até 5h',regs.filter(d=>d.reg.checklist?.sem5h).length],
+          ['cafeína até as 14h',regs.filter(d=>d.reg.checklist?.cafeina14).length],
+          ['respiração diafragmática',regs.filter(d=>d.reg.checklist?.respManha&&d.reg.checklist?.respNoite).length]];
+        if(!n) return '';
+        const menor=itens.reduce((a,b)=>b[1]<a[1]?b:a);
+        const maiores=itens.filter(x=>x[1]/n>=0.9).map(x=>x[0]);
+        const p=[];
+        if(maiores.length) p.push(`Adesão de 90% ou mais em ${maiores.join(', ')}`);
+        p.push(`o item com menor adesão foi ${menor[0]}, em ${menor[1]} de ${n} dias`);
+        return p.join('; ')+'.';
+      })(), (()=>{ if(!n) return 'neutro';
+        const vals=[regs.filter(d=>d.treinou).length,
+          regs.filter(d=>d.reg.checklist?.comeuAntes).length,
+          regs.filter(d=>d.reg.checklist?.sem5h).length,
+          regs.filter(d=>d.reg.checklist?.cafeina14).length,
+          regs.filter(d=>d.reg.checklist?.respManha&&d.reg.checklist?.respNoite).length];
+        const menor=Math.min(...vals)/n;
+        return menor>=0.8?'bom' : menor>=0.5?'atencao':'ruim'; })())}
     </section>
 
     <section class="relSec">
