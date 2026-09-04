@@ -298,7 +298,7 @@ const S = {
   registros:{},         // data -> registro
   cargas:{},            // data -> {exId: {serie: {carga_kg,reps}}}
   cargasMax:{},         // exId -> maior carga anterior
-  crises:[], metas:{...METAS_PADRAO},
+  crises:[], itens:[], itemEdicao:null, metas:{...METAS_PADRAO},
   vendo:null, salvando:false, msg:'',
 };
 
@@ -355,11 +355,12 @@ document.addEventListener('visibilitychange', ()=>{
 async function carregarTudo(){
   const ini = S.metas.inicio_plano;
   const fim = somaDias(ini, 40);
-  const [rd, ct, cr, mt] = await Promise.all([
+  const [rd, ct, cr, mt, it] = await Promise.all([
     sb.from('sd_registros_diarios').select('*').gte('data',ini).lte('data',fim),
     sb.from('sd_cargas_treino').select('*'),
     sb.from('sd_crises').select('*').order('data',{ascending:false}),
     sb.from('sd_metas').select('*').maybeSingle(),
+    sb.from('sd_itens_uso').select('*').order('ordem'),
   ]);
   if(mt.data) S.metas = {...METAS_PADRAO, ...mt.data};
   else await sb.from('sd_metas').upsert({user_id:S.user.id, ...METAS_PADRAO});
@@ -374,6 +375,7 @@ async function carregarTudo(){
     S.cargas[c.data][c.exercicio_id][c.serie] = c;
   });
   S.crises = cr.data||[];
+  S.itens = it.data||[];
   recalcularMax();
 }
 
@@ -443,7 +445,7 @@ function render(){
     <div id="msgerro" class="erro"></div>
     <nav class="abas">
       ${[['painel','Painel'],['hoje','Hoje'],['treino','Treino'],['evolucao','Evolução'],
-         ['crises','Crises'],['relatorio','Relatório'],['metas','Metas']]
+         ['crises','Crises'],['farmacia','Farmácia'],['relatorio','Relatório'],['metas','Metas']]
         .map(([k,r])=>`<button data-aba="${k}" class="${S.aba===k?'on':''}">${r}${
           k==='crises'&&S.crises.length?` <span class="tag">${S.crises.length}</span>`:''}</button>`).join('')}
       <span id="estado"></span>
@@ -456,6 +458,7 @@ function render(){
     S.aba==='treino' ? viewTreino() :
     S.aba==='evolucao' ? viewEvolucao() :
     S.aba==='crises' ? viewCrises() :
+    S.aba==='farmacia' ? viewFarmacia() :
     S.aba==='relatorio' ? viewRelatorio() : viewMetas();
 
   ligarEventos(); pintarEstado();
@@ -618,6 +621,8 @@ function viewHoje(){
         placeholder="Anotação — o que ajudou, o que atrapalhou…" value="${esc(r.nota_sexual)}">
     </div>`:''}
   </section>
+
+  ${blocoTomadas(r)}
 
   <section class="cartao">
     <div class="topo"><span class="et">Rotina</span>
@@ -942,6 +947,172 @@ function viewPainel(){
     começam a se preencher a partir daí.</p>`:''}`;
 }
 
+/* ---------- FARMÁCIA ---------- */
+const FREQ = {diario:'Todo dia', semanal:'Semanal', se_necessario:'Se necessário'};
+const TIPOS = [['medicamento','Medicamento'],['suplemento','Suplemento']];
+
+function itensAtivos(){
+  return (S.itens||[]).filter(i=>i.ativo)
+    .sort((a,b)=>(a.ordem-b.ordem)||a.nome.localeCompare(b.nome));
+}
+
+function viewFarmacia(){
+  const itens=(S.itens||[]).sort((a,b)=>(a.ativo===b.ativo?0:a.ativo?-1:1)
+    ||(a.ordem-b.ordem)||a.nome.localeCompare(b.nome));
+  const ficha=(i)=>`
+    <article class="cartao" style="border-left:3px solid ${
+      i.ativo?(i.tipo==='suplemento'?C.azul:C.teal):C.linha};${i.ativo?'':'opacity:.55'}">
+      <div class="topo">
+        <div>
+          <p style="font:500 15px 'IBM Plex Sans';margin:0 0 3px">${esc(i.nome)}</p>
+          <span class="etf">${esc(i.dose||'—')} · ${FREQ[i.frequencia]}${
+            i.horario?' · '+i.horario.slice(0,5):''}</span>
+        </div>
+        <span class="tag">${i.tipo==='suplemento'?'suplemento':'medicamento'}</span>
+      </div>
+      ${i.inicio||i.fim?`<p class="nota">
+        ${i.inicio?'Início '+rotuloData(i.inicio):''}${i.fim?' · fim '+rotuloData(i.fim):''}</p>`:''}
+      ${i.observacao?`<p class="nota">${esc(i.observacao)}</p>`:''}
+      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+        <button class="btnlink" data-editaritem="${i.id}">Editar</button>
+        <button class="btnlink" data-alternaritem="${i.id}">${i.ativo?'Suspender':'Reativar'}</button>
+        <button class="btnlink" data-excluiritem="${i.id}">Excluir</button>
+      </div>
+    </article>`;
+
+  const f=S.itemEdicao;
+  return `
+  ${f?`<section class="cartao destaque">
+    <span class="et">${f.id?'Editar item':'Novo item'}</span>
+    <div style="margin-top:14px">
+      <span class="rot">Nome</span>
+      <input type="text" id="it_nome" value="${esc(f.nome||'')}"
+        placeholder="Ex.: Vitamina D" style="margin-top:6px"></div>
+    <div class="chips">
+      ${TIPOS.map(([v,r])=>`<button class="chip" data-ittipo="${v}"
+        style="background:${f.tipo===v?(v==='suplemento'?C.azul:C.teal):'transparent'};
+        color:${f.tipo===v?'#fff':C.tinta};border-color:${f.tipo===v?(v==='suplemento'?C.azul:C.teal):C.linha}">
+        ${r}</button>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-top:14px">
+      <div><span class="rot">Dose por vez</span>
+        <input type="text" id="it_dose" value="${esc(f.dose||'')}"
+          placeholder="40 mg" style="margin-top:6px"></div>
+      <div><span class="rot">Horário</span>
+        <input type="time" id="it_horario" value="${f.horario?f.horario.slice(0,5):''}"
+          style="margin-top:6px"></div>
+      <div><span class="rot">Início</span>
+        <input type="date" id="it_inicio" value="${f.inicio||''}" style="margin-top:6px"></div>
+    </div>
+    <div style="margin-top:14px"><span class="rot">Frequência</span>
+      <div class="chips">
+        ${Object.entries(FREQ).map(([v,r])=>`<button class="chip" data-itfreq="${v}"
+          style="background:${f.frequencia===v?C.tinta:'transparent'};
+          color:${f.frequencia===v?'#fff':C.tinta};border-color:${f.frequencia===v?C.tinta:C.linha}">
+          ${r}</button>`).join('')}
+      </div></div>
+    <div style="margin-top:14px"><span class="rot">Observação</span>
+      <input type="text" id="it_obs" value="${esc(f.observacao||'')}"
+        placeholder="Sempre após comer" style="margin-top:6px"></div>
+    <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
+      <button class="btn" id="salvarItem">Salvar</button>
+      <button class="btn2" id="cancelarItem">Cancelar</button>
+    </div>
+  </section>`
+  :`<button class="btn" id="novoItem" style="width:100%;margin-bottom:14px">
+      Adicionar medicamento ou suplemento</button>`}
+
+  ${itens.length===0
+    ? `<p class="vazio">Nada cadastrado ainda. Adicione o que você toma para
+       aparecer na aba Hoje e no relatório.</p>`
+    : itens.map(ficha).join('')}`;
+}
+
+/* ---------- bloco de tomadas na aba Hoje ---------- */
+function blocoTomadas(r){
+  const itens=itensAtivos();
+  if(!itens.length) return '';
+  const t=r.tomadas||{};
+  const feitos=itens.filter(i=>t[i.id]?.ok).length;
+  return `
+  <section class="cartao">
+    <div class="topo"><span class="et">Medicação e suplementos</span>
+      <span class="etf" style="color:${feitos===itens.length?'var(--teal)':'var(--fraco)'}">
+        ${feitos} de ${itens.length}</span></div>
+    <ul class="lst">
+      ${itens.map(i=>{
+        const reg=t[i.id]||{};
+        const on=!!reg.ok;
+        const hora=reg.hora || (i.horario?i.horario.slice(0,5):'');
+        return `<li style="padding:9px 0;border-bottom:1px solid var(--linha)">
+          <div style="display:flex;align-items:center;gap:11px">
+            <button data-tomada="${i.id}" style="background:none;border:none;padding:0;cursor:pointer">
+              <span class="cx" style="background:${on?(i.tipo==='suplemento'?C.azul:C.teal):'transparent'};
+                border-color:${on?(i.tipo==='suplemento'?C.azul:C.teal):C.linha}">${on?'✓':''}</span>
+            </button>
+            <div style="flex:1;min-width:0">
+              <p style="font:400 14px 'IBM Plex Sans';margin:0;
+                color:${on?'var(--fraco)':'var(--tinta)'}">${esc(i.nome)}</p>
+              <span class="etf" style="font-size:11px">${esc(i.dose||'')}${
+                i.frequencia!=='diario'?' · '+FREQ[i.frequencia]:''}</span>
+            </div>
+            <input type="time" data-horatomada="${i.id}" value="${hora}"
+              style="width:104px;padding:6px 8px;font-size:13px">
+          </div>
+          ${i.observacao&&!on?`<p class="nota" style="margin:4px 0 0 31px">${esc(i.observacao)}</p>`:''}
+        </li>`}).join('')}
+    </ul>
+  </section>`;
+}
+
+
+function lerFormItem(){
+  const v=id=>el(id)?el(id).value:undefined;
+  return {nome:v('it_nome'), dose:v('it_dose'), horario:v('it_horario')||null,
+          inicio:v('it_inicio')||null, observacao:v('it_obs')};
+}
+
+async function salvarItem(){
+  const f={...S.itemEdicao, ...lerFormItem()};
+  if(!f.nome || !f.nome.trim()){ S.msg='Dê um nome ao item.'; pintarEstado(); return; }
+  const linha={nome:f.nome.trim(), tipo:f.tipo||'medicamento', dose:f.dose||null,
+    frequencia:f.frequencia||'diario', horario:f.horario||null, inicio:f.inicio||null,
+    observacao:f.observacao||null, ordem:f.ordem??((S.itens||[]).length+1), ativo:f.ativo??true};
+  try{
+    if(f.id){
+      const {data,error}=await sb.from('sd_itens_uso').update(linha).eq('id',f.id).select().single();
+      if(error) throw error;
+      S.itens=(S.itens||[]).map(x=>x.id===f.id?data:x);
+    }else{
+      const {data,error}=await sb.from('sd_itens_uso').insert(linha).select().single();
+      if(error) throw error;
+      S.itens=[...(S.itens||[]), data];
+    }
+    S.itemEdicao=null; S.msg='';
+  }catch(e){ S.msg='Erro ao salvar: '+(e.message||e); }
+  render();
+}
+
+async function alternarItem(id){
+  const it=(S.itens||[]).find(x=>x.id===id); if(!it) return;
+  try{
+    const {data,error}=await sb.from('sd_itens_uso').update({ativo:!it.ativo,
+      fim: it.ativo?hojeIso():null}).eq('id',id).select().single();
+    if(error) throw error;
+    S.itens=S.itens.map(x=>x.id===id?data:x);
+  }catch(e){ S.msg='Erro: '+(e.message||e); }
+  render();
+}
+
+async function excluirItem(id){
+  try{
+    const {error}=await sb.from('sd_itens_uso').delete().eq('id',id);
+    if(error) throw error;
+    S.itens=(S.itens||[]).filter(x=>x.id!==id);
+  }catch(e){ S.msg='Erro: '+(e.message||e); }
+  render();
+}
+
 /* ---------- RELATÓRIO PARA CONSULTA ---------- */
 const coment = (t, estado) => t
   ? `<p class="relComent ${estado||'neutro'}"><span class="relSinal"></span>${t}</p>` : '';
@@ -991,8 +1162,29 @@ function viewRelatorio(){
     </div>
 
     <section class="relSec">
-      <h3>Medicações em uso</h3>
-      <pre class="relTexto">${esc(M.medicacoes||'—')}</pre>
+      <h3>Medicações e suplementos em uso</h3>
+      ${(()=>{
+        const at=itensAtivos();
+        if(!at.length) return `<pre class="relTexto">${esc(M.medicacoes||'—')}</pre>`;
+        const susp=(S.itens||[]).filter(i=>!i.ativo);
+        return `<table class="relTab relLista"><thead><tr>
+          <th>Item</th><th>Tipo</th><th>Dose</th><th>Frequência</th><th>Horário</th><th>Início</th>
+        </tr></thead><tbody>
+        ${at.map(i=>`<tr><td>${esc(i.nome)}</td><td>${i.tipo}</td><td>${esc(i.dose||'—')}</td>
+          <td>${FREQ[i.frequencia]}</td><td>${i.horario?i.horario.slice(0,5):'—'}</td>
+          <td>${i.inicio?i.inicio.split('-').reverse().slice(0,2).join('/'):'—'}</td></tr>`).join('')}
+        </tbody></table>
+        ${susp.length?`<p class="relLegenda">Suspensos: ${susp.map(i=>
+          esc(i.nome)+(i.fim?` (até ${i.fim.split('-').reverse().slice(0,2).join('/')})`:'')).join(', ')}.</p>`:''}
+        ${(()=>{ const at2=itensAtivos().filter(i=>i.frequencia==='diario');
+          if(!at2.length||!n) return '';
+          const tot=regs.reduce((a,d)=>a+at2.filter(i=>d.reg.tomadas?.[i.id]?.ok).length,0);
+          const poss=at2.length*n;
+          return coment(`Registro de tomada em ${tot} de ${poss} oportunidades (${
+            Math.round(tot/poss*100)}%) entre os itens de uso diário.`,
+            tot/poss>=0.9?'bom':tot/poss>=0.7?'atencao':'ruim');
+        })()}`;
+      })()}
     </section>
 
     <section class="relSec">
@@ -1605,6 +1797,31 @@ function ligarEventos(){
       + (nCr?` · <span style="color:#E4938A">${nCr} crise${nCr>1?'s':''}</span>`:'');
   });
   const bi=el('btnImprimir'); if(bi) bi.onclick=()=>window.print();
+  /* ---- farmácia ---- */
+  document.querySelectorAll('[data-tomada]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.tomada, rr=reg(), t={...(rr.tomadas||{})};
+    const item=(S.itens||[]).find(x=>x.id===id);
+    if(t[id]?.ok) delete t[id];
+    else t[id]={ok:true, hora:(t[id]?.hora)||(item?.horario?item.horario.slice(0,5):null)};
+    setCampo('tomadas', t); render();
+  });
+  document.querySelectorAll('[data-horatomada]').forEach(i=>i.oninput=()=>{
+    const id=i.dataset.horatomada, rr=reg(), t={...(rr.tomadas||{})};
+    t[id]={ok:t[id]?.ok??true, hora:i.value||null};
+    setCampo('tomadas', t);
+  });
+  const ni=el('novoItem'); if(ni) ni.onclick=()=>{
+    S.itemEdicao={tipo:'medicamento',frequencia:'diario',inicio:hojeIso()}; render(); };
+  const ci=el('cancelarItem'); if(ci) ci.onclick=()=>{ S.itemEdicao=null; render(); };
+  document.querySelectorAll('[data-ittipo]').forEach(b=>b.onclick=()=>{
+    S.itemEdicao={...S.itemEdicao, ...lerFormItem(), tipo:b.dataset.ittipo}; render(); });
+  document.querySelectorAll('[data-itfreq]').forEach(b=>b.onclick=()=>{
+    S.itemEdicao={...S.itemEdicao, ...lerFormItem(), frequencia:b.dataset.itfreq}; render(); });
+  document.querySelectorAll('[data-editaritem]').forEach(b=>b.onclick=()=>{
+    S.itemEdicao={...(S.itens||[]).find(x=>x.id===b.dataset.editaritem)}; render(); });
+  document.querySelectorAll('[data-alternaritem]').forEach(b=>b.onclick=()=>alternarItem(b.dataset.alternaritem));
+  document.querySelectorAll('[data-excluiritem]').forEach(b=>b.onclick=()=>excluirItem(b.dataset.excluiritem));
+  const si=el('salvarItem'); if(si) si.onclick=salvarItem;
   const s=el('sair'); if(s) s.onclick=async()=>{await sb.auth.signOut(); location.reload()};
 }
 
